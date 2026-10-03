@@ -1,0 +1,452 @@
+
+PULSEOPS
+Application Flow, Navigation Logic & User Journey
+Complete MVP interaction model for the monitoring, alerts, incidents and AI-assisted investigation workflow
+Version 1.0  |  October 2026Based on PulseOps PRD v1.0 and TRD v1.0
+CORE JOURNEYDemo Application → Telemetry → PulseOps → Alert → Incident → Investigation → Resolution → AI Summary
+Document purpose: define how a user moves through PulseOps, what each screen does, what triggers navigation, and how the system behaves from login to incident resolution.
+
+1. Document Scope
+This document defines the application navigation model and end-to-end user journey for the PulseOps MVP. It translates the product and technical requirements into a screen-level flow: entry, authentication, dashboard, services, alerts, incidents, investigation, resolution, AI-assisted summary, and system settings. It is intended to be used alongside the PRD and TRD during implementation.
+1.1 Source-derived boundaries
+PulseOps monitors an application that we control; it is not an arbitrary third-party application monitoring tool.
+The MVP centers on service health, request activity, errors, response time, alerts, incidents, evidence, and an advisory AI incident summary.
+The user-facing incident lifecycle is Open → Investigating → Resolved; “Detected” can be treated as an internal event that produces an Open incident.
+Authentication and authorization are required for protected PulseOps pages.
+The AI assistant is advisory and must use evidence already collected by PulseOps; it does not automatically change code or infrastructure.
+Advanced infrastructure such as Kubernetes, Kafka, service mesh, autonomous remediation, and large custom ML systems is outside the MVP.
+2. User Model and Primary Goal
+The primary user is a developer or small engineering team member responsible for an application. The user’s main job in PulseOps is not to configure a large monitoring platform; it is to quickly answer four questions: Is my application healthy? What went wrong? Which service is affected? What evidence do I have to investigate and resolve it?
+User Role
+Primary Goal
+Main Areas
+Developer / Operator
+Monitor application health and investigate incidents
+Dashboard, Services, Alerts, Incidents, Incident Detail, Settings
+Learner / Project Reviewer
+Understand how telemetry becomes an alert and incident
+Dashboard, Incident Detail, Architecture / Demo behavior
+
+3. Application Information Architecture
+PUBLIC└── LoginAUTHENTICATED├── Dashboard│   ├── Service Health│   ├── Request / Error Summary│   ├── Response-Time Summary│   ├── Active Incidents│   └── Recent Alerts│├── Services│   └── Service Detail│       ├── Health│       ├── Requests│       ├── Errors│       ├── Latency│       └── Related Incidents│├── Alerts│   └── Alert Detail│       ├── Rule│       ├── Trigger Time│       ├── Evidence│       └── Linked Incident│├── Incidents│   └── Incident Detail│       ├── Summary│       ├── Evidence│       ├── Timeline│       ├── Status Actions│       └── AI Summary│└── Settings    ├── Profile / Session    └── Monitoring Configuration (where implemented)
+GLOBAL NAVIGATIONDashboard | Services | Alerts | Incidents | Settings | Logout
+4. Navigation Map and Route Logic
+The exact REST API paths are intentionally not locked by the TRD, so this section defines proposed frontend routes as an implementation contract for the UI. Route names may be changed during coding as long as the behavior remains the same.
+Route
+Screen
+Entry Conditions
+Primary Actions
+Back / Exit
+/login
+Login
+Public
+Sign in
+None
+/dashboard
+Overview Dashboard
+Authenticated
+View health, alerts, incidents; open details
+N/A
+/services
+Service List
+Authenticated
+Filter/select service
+Back to Dashboard
+/services/:id
+Service Detail
+Authenticated + valid service ID
+Review health, metrics, related incidents
+Services
+/alerts
+Alert List
+Authenticated
+Filter/view alerts
+Dashboard
+/alerts/:id
+Alert Detail
+Authenticated + valid alert ID
+Review trigger/evidence; open linked incident
+Alerts
+/incidents
+Incident List
+Authenticated
+Filter by status/severity/service
+Dashboard
+/incidents/:id
+Incident Detail
+Authenticated + valid incident ID
+Investigate, update status, view timeline, run AI summary
+Incidents
+/settings
+Settings
+Authenticated
+Session/configuration actions supported by MVP
+Dashboard
+
+4.1 Global route-guard logic
+Open a protected route → check whether a valid authenticated session exists.
+No valid session → redirect to /login and preserve the intended destination as the return target when safe to do so.
+Valid session → load the requested screen.
+Expired/invalid session during use → clear the local session state, redirect to /login, and show a short session-expired message.
+Invalid record ID → show a not-found state with a link back to the related list page.
+API/network failure → keep the user on the current screen, show a recoverable error state, and provide Retry where appropriate.
+5. Screen-by-Screen Navigation Specification
+5.1 Login
+Purpose: entry point for authenticated PulseOps users.
+Inputs: email/username and password (exact identity fields can follow the auth implementation).
+Primary action: Sign In.
+Success: redirect to the requested protected route or /dashboard.
+Failure: remain on login, show a clear authentication error, do not expose whether a specific account exists.
+Loading: disable the submit action while authenticating.
+Session rule: successful login establishes the authenticated client state required by protected routes.
+5.2 Dashboard
+Purpose: control-room overview and first screen after login.
+Show service health status at a glance.
+Show request count, error count/error rate, and response-time summary.
+Show active incidents and recent alert activity.
+Each card/row should be clickable when a detail page exists.
+Selecting a service → /services/:id.
+Selecting an incident → /incidents/:id.
+Selecting an alert → /alerts/:id.
+Empty state: explain that no telemetry or incidents are currently available, with a link/instruction to run the demo application traffic.
+Refresh behavior: support explicit refresh; auto-refresh may be added if implemented, but should not create duplicate data or confusing navigation.
+5.3 Services
+Purpose: list and filter monitored services.
+Show service name, current health, recent request/error signal, and latest relevant timestamp.
+Selecting a service opens Service Detail.
+Filters/search should not change the current route hierarchy; they only change the list view.
+If no services exist, show a setup/empty state rather than an error.
+5.4 Service Detail
+Purpose: investigate one service before or after an incident.
+Show service health state.
+Show request activity and error information.
+Show response-time/latency information.
+Show related alerts and incidents.
+Open a related incident from the service page → /incidents/:id.
+Back → /services.
+5.5 Alerts
+Purpose: show rule-triggered monitoring conditions before or alongside incident management.
+Show alert status, rule, service, trigger time, and severity.
+Selecting an alert opens Alert Detail.
+Filtering by service/status/severity should preserve the alert list context.
+If an alert has a linked incident, provide a direct link to that incident.
+5.6 Alert Detail
+Purpose: explain why the alert fired.
+Show the triggering rule.
+Show affected service.
+Show trigger timestamp.
+Show observed metric/evidence relevant to the rule.
+Show the linked incident when one exists.
+Primary investigation action → Open Incident.
+Back → /alerts.
+5.7 Incidents
+Purpose: track operational issues through a simple lifecycle.
+Show incident title, affected service, severity, status, and timestamps.
+Filters: status, severity, service.
+Selecting an incident opens Incident Detail.
+Open incidents should be visually distinguishable from Resolved incidents without relying only on color.
+Empty state: explain that no incidents are currently active or match the filter.
+5.8 Incident Detail
+Purpose: main investigation workspace.
+Show title, severity, affected service, current status, open time, and resolved time when available.
+Show the alert/rule that triggered the incident.
+Show relevant monitoring evidence such as metric values and recent events.
+Show incident timeline/audit history.
+Status actions: Open → Investigating; Investigating → Resolved. Invalid transitions are blocked.
+Provide an optional AI Summary action once enough evidence exists.
+After resolving, keep the incident accessible for historical review.
+Back → /incidents.
+5.9 Settings
+Purpose: basic account/session and supported configuration actions.
+Show session/account context.
+Support Logout.
+Where threshold configuration is implemented, expose the supported rule settings without adding enterprise configuration complexity.
+After logout, redirect to /login and clear protected client state.
+6. Primary User Journey: Healthy → Problem → Incident → Resolution
+1. Login → 2. Dashboard → 3. Healthy service → 4. Problem occurs → 5. Alert created → 6. Incident opens → 7. User investigates → 8. Investigating → 9. Resolved → 10. Optional AI summary
+Step
+Screen / Actor
+Trigger
+Expected State
+Next
+Exception
+1
+Login
+User signs in
+Authenticated session
+Dashboard
+Credentials are invalid → stay on login and show error
+2
+Dashboard
+User sees current health
+Service cards + metrics available
+Service detail or incident list
+No data → show empty state
+3
+Service Detail
+User inspects healthy service
+Healthy status and normal metrics
+Remain / Dashboard
+Service unavailable → show error + retry
+4
+External event / demo action
+Slow or failing request occurs
+Telemetry signal generated
+System processes signal
+Telemetry delayed/missing → no false UI state; show latest known data
+5
+Alerts
+Rule threshold is crossed
+Alert created/deduplicated
+Alert detail / incident creation
+Repeated same condition → deduplicate according to configured rule
+6
+Incident Detail
+Alert becomes incident
+Incident is Open with evidence
+Investigation workspace
+Incident creation failure → surface error and preserve alert
+7
+Investigation
+User reviews evidence
+Metrics/events/timeline visible
+Status action
+Partial evidence → label unavailable data rather than inventing values
+8
+Incident Detail
+User starts investigation
+Status = Investigating
+Same page
+Invalid transition → block action
+9
+Incident Detail
+User resolves issue
+Status = Resolved + resolution timestamp
+Stay on page / incident list
+Resolve request fails → keep status and show retry
+10
+AI Summary
+User requests summary after evidence exists
+Advisory summary returned
+Stay on incident detail
+AI unavailable → core incident workflow still works
+
+7. Incident Navigation and State Logic
+Telemetry condition crosses rule threshold                |                v        Alert created / refreshed                |                v       Incident created as OPEN                |                v       User opens incident detail                |                v        OPEN -> INVESTIGATING                |                v       Evidence reviewed / issue fixed                |                v          INVESTIGATING -> RESOLVED                |                v       Incident remains viewable          for historical review
+Current Status
+Allowed Action
+New Status
+UI Behavior
+Open
+Start Investigation
+Investigating
+Enable action button
+Investigating
+Resolve Incident
+Resolved
+Enable resolve button
+Resolved
+No lifecycle action
+Resolved
+Read-only lifecycle state; historical evidence remains visible
+
+7.1 Status transition rules
+Do not allow Resolved → Investigating in the MVP unless a future requirement explicitly adds reopening.
+Do not allow Open → Resolved directly if the implementation follows the simple lifecycle specified by the PRD/TRD; require investigation first.
+Every successful status transition creates a timeline/audit entry.
+The current status is the source of truth for the incident header and action buttons.
+8. Alert-to-Incident Navigation Logic
+Observation arrives      |      vEvaluate configured rule      |  +---+---+  |       |No hit   Hit  |       |  |       v  |   Check active condition  |       |  |   +---+---+  |   |       |  | New?   Already active?  |   |       |  |   v       v  | Create   Refresh / do not duplicate  | Alert  |   |  |   v  | Create linked Incident (Open)  |       |  +-------+---------------->          Dashboard / Alerts / Incidents update
+The TRD requires simple deduplication so repeated observations of the same underlying condition do not create unlimited identical alerts. The application should therefore treat the active condition for a service/rule pair as the unit of deduplication and document the exact key used by the implementation.
+9. AI Incident Assistant User Journey
+AI is an investigation aid, not the detector. The user should only encounter the AI action after the incident already exists and PulseOps has collected evidence.
+Incident exists    |    vUser opens Incident Detail    |    vEvidence section loaded(metrics + alert + events + logs when available)    |    vUser selects “Generate AI Summary”    |    vBackend prepares evidence context    |    vAI returns advisory summary    |    vIncident Detail shows:- observed evidence- concise incident summary- possible contributing factors- advisory / non-authoritative note
+The AI control must not appear to be the mechanism that detects incidents.
+The UI should distinguish observed evidence from possible explanations.
+If the AI provider is unavailable, the incident page remains fully usable without the AI feature.
+The user should be able to regenerate a summary if the implementation allows it, but repeated generation must not change the incident status.
+The AI must not perform automatic code or infrastructure changes.
+10. Global UX States and Failure Handling
+State
+When it occurs
+Navigation Behavior
+Required UI Response
+Loading
+Page/API request in progress
+Stay on current route
+Show loading indicator/skeleton; prevent duplicate destructive actions
+Empty
+No records exist or filters return none
+Stay on current route
+Explain what is empty and what the user can do next
+Unauthorized
+No valid auth session
+Redirect to /login
+Clear protected client state; optional return path
+Forbidden
+User is authenticated but lacks permission
+Stay on route or go to safe page
+Show access-denied message without exposing protected data
+Not Found
+Invalid service/alert/incident ID
+Offer return to parent list
+Show record not found
+Server Error
+Backend returns 5xx
+Stay on route
+Show retry option and keep current context
+Network Error
+Browser cannot reach backend
+Stay on route
+Show connection error and Retry
+Stale Data
+Latest refresh is unavailable
+Stay on route
+Label data as last known value/time when possible
+AI Unavailable
+AI provider call fails
+Stay on incident detail
+Show clear non-blocking error; evidence remains available
+
+11. Back Navigation, Refresh, and Deep-Link Behavior
+Browser Back should return to the prior route without losing the authenticated session.
+List filters may be stored in the URL query string if the implementation supports it; otherwise returning to a list can reset filters to defaults.
+Direct navigation to /incidents/:id or /services/:id should work for an authenticated user.
+A protected deep link opened while logged out should redirect to /login and return to the original route after successful authentication when safely supported.
+Browser refresh on a protected route should reload the session state and then load the route; it should not force a logout unless the session is actually invalid.
+After completing an action such as resolving an incident, keep the user on the incident page so they can confirm the result. Provide a clear path back to Incidents.
+12. Complete User Journey Scenarios
+Scenario A — First Successful Login
+User opens PulseOps.
+Application detects no active session and opens Login.
+User enters valid credentials and selects Sign In.
+Authentication succeeds.
+User lands on Dashboard.
+Dashboard shows service health and current monitoring state.
+Scenario B — Investigating a Slow Service
+User is on Dashboard and sees increased latency for a service.
+User opens the service from the Service Health area.
+Service Detail shows the latency signal and recent related activity.
+User opens a linked alert or incident.
+Incident Detail shows the affected service, rule, timestamps, metrics, and timeline.
+User changes status from Open to Investigating.
+User uses the evidence to diagnose the issue outside PulseOps.
+Once the issue is fixed, user marks the incident Resolved.
+Scenario C — Error Burst Creates an Incident
+The demo application begins returning HTTP 500 responses from the controlled error endpoint.
+Telemetry records failed requests.
+A configured error-rate rule crosses its threshold.
+PulseOps creates an alert and an Open incident.
+Dashboard and incident list show the new incident.
+User opens the incident and reviews the evidence.
+User investigates and resolves the issue.
+The incident remains visible as historical information.
+Scenario D — AI-Assisted Investigation
+User opens an existing incident with collected evidence.
+User selects Generate AI Summary.
+PulseOps prepares incident context from the evidence already stored.
+AI returns an advisory summary and possible contributing factors.
+User compares the AI summary with the actual evidence.
+User does not rely on AI to change application code or infrastructure.
+Incident status remains unchanged by AI generation.
+Scenario E — Session Expires During Investigation
+User is viewing an incident detail page.
+A later API request returns an authentication failure because the session is no longer valid.
+PulseOps clears the protected client state.
+User is redirected to Login.
+After successful re-authentication, the application can return to the incident route when safely supported.
+Incident data is reloaded from the backend.
+13. Navigation Logic Rules Matrix
+Trigger / Event
+Source Screen
+Target
+Condition
+Result
+Successful login
+Login
+Dashboard or preserved deep link
+Authentication succeeds
+Protected app opens
+Click service
+Dashboard / Services
+Service Detail
+Valid service
+Service investigation view
+Click alert
+Dashboard / Alerts
+Alert Detail
+Valid alert
+Rule/evidence view
+Click incident
+Dashboard / Alerts / Services / Incidents
+Incident Detail
+Valid incident
+Incident investigation view
+Start Investigation
+Incident Detail
+Same screen
+Status = Open
+Status becomes Investigating
+Resolve
+Incident Detail
+Same screen
+Status = Investigating
+Status becomes Resolved
+Generate AI Summary
+Incident Detail
+Same screen
+Evidence exists
+Summary panel populated if AI call succeeds
+Logout
+Any authenticated screen
+Login
+Session action selected
+Protected state cleared
+Invalid ID
+Any detail route
+Parent list
+Record not found
+Not-found message + safe return path
+401 / expired session
+Any protected screen
+Login
+Session invalid
+Session cleared; optional return path
+
+14. Frontend Implementation Handoff
+The following structure is recommended for implementation. It is a navigation-oriented organization; the exact component names can be changed as coding proceeds.
+frontend/└── src/    ├── pages/    │   ├── Login.jsx    │   ├── Dashboard.jsx    │   ├── Services.jsx    │   ├── ServiceDetail.jsx    │   ├── Alerts.jsx    │   ├── AlertDetail.jsx    │   ├── Incidents.jsx    │   ├── IncidentDetail.jsx    │   └── Settings.jsx    │    ├── components/    │   ├── AppShell.jsx    │   ├── Sidebar.jsx    │   ├── Topbar.jsx    │   ├── ServiceCard.jsx    │   ├── AlertRow.jsx    │   ├── IncidentCard.jsx    │   ├── StatusBadge.jsx    │   ├── MetricCard.jsx    │   ├── Timeline.jsx    │   └── EmptyState.jsx    │    └── routing/        └── routes.jsx
+15. Navigation Acceptance Criteria
+A logged-out user can reach Login and cannot access protected application pages without authentication.
+A successful login opens Dashboard or a safely preserved requested protected route.
+Dashboard provides clear paths to services, alerts, and incidents.
+Every list page has a stable path to its corresponding detail page.
+Incident Detail supports the full MVP user lifecycle: Open → Investigating → Resolved.
+Alert Detail explains what rule triggered the alert and links to the associated incident when one exists.
+The incident page displays the required evidence and timeline information defined by the PRD/TRD.
+The AI assistant can be launched from an existing incident but does not create or resolve incidents by itself.
+Logout clears the authenticated state and returns the user to Login.
+401, 403, 404, 5xx, network, empty, loading, and AI-failure states have defined navigation behavior.
+Browser refresh and safe deep links work for authenticated routes.
+All navigation behavior is understandable enough to explain in an implementation or interview walkthrough.
+16. Recommended 3–5 Minute Product Walkthrough
+Login and arrive at Dashboard.
+Point out the monitored service and healthy state.
+Open Service Detail and explain the normal request/latency view.
+Trigger the demo slow endpoint and refresh the monitoring state.
+Show the alert condition and open the linked incident.
+Explain the evidence section and incident timeline.
+Move the incident from Open to Investigating and then to Resolved.
+Open the AI summary and explain that it uses evidence already collected by PulseOps.
+Return to the incident list to show that the resolved incident remains available as history.
+17. UX Principles for PulseOps
+The dashboard should behave like a control room: current health first, detailed investigation second.
+A user should be able to reach an incident from at least Dashboard, Alerts, and the affected Service.
+Evidence should appear before interpretation. AI is a second layer over collected data, not the primary detector.
+Status and severity should not depend only on color; use text labels and icons as needed.
+Do not hide important failures behind silent loading or blank screens.
+Keep destructive or lifecycle-changing actions explicit and require a deliberate click.
+Prefer a small number of understandable screens over a large enterprise-style navigation tree.
+18. Final Navigation Definition
+PulseOps is navigated as a simple incident investigation loop. The user signs in, lands on the Dashboard, identifies a service or signal that needs attention, drills into the relevant Service, Alert, or Incident detail, reviews the evidence, moves the incident from Open to Investigating and then to Resolved, and optionally asks the AI assistant to summarize the evidence. The application always preserves the distinction between observed monitoring data and advisory AI interpretation. The navigation is deliberately small so the system remains explainable and aligned with the MVP scope.
+FINAL LOOPLOGIN → DASHBOARD → SERVICE / ALERT / INCIDENT → EVIDENCE → INVESTIGATE → RESOLVE → OPTIONAL AI SUMMARY → HISTORY

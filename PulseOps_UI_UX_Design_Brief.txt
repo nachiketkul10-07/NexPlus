@@ -1,0 +1,502 @@
+
+PULSEOPS
+UI / UX DESIGN BRIEF
+Final visual direction, navigation, motion system and screen behavior
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Item
+Decision
+Product
+PulseOps - incident monitoring and observability platform
+Design direction
+Slate Dark / shadcn-style dark product UI with red brand accent
+Motion reference
+User-provided 14.3-second Codex Astra motion reference video
+Primary visual reference
+User-provided Slate Dark palette screenshot and 21st.dev theme reference
+Primary audience
+Developers / engineering teams monitoring their own applications
+Document status
+Final design brief for implementation handoff
+
+Design principle
+PulseOps should feel like a calm control room, not a red emergency screen. Red is the brand/action accent; green, amber, blue and neutral states keep system status readable.
+
+
+1. Executive UI/UX Direction
+PulseOps is a technical monitoring product, so the interface should prioritize information density, hierarchy and fast scanning. The visual language uses a dark slate foundation, high-contrast white typography, restrained borders and a bright red primary accent. The motion language borrows the supplied reference video’s cinematic qualities—deep dark atmosphere, soft particle movement, centered focal content, staged text reveals and gentle depth—without copying its space/cosmos visuals literally.
+Default mode: dark only for the first release; light mode can be added later without changing component semantics.
+Tone: precise, technical, calm, premium and slightly cinematic.
+Density: dashboard-first; cards should contain enough data to be useful but never feel crowded.
+Motion: purposeful and restrained. Animations should explain state changes, guide attention or establish product identity.
+Brand color discipline: use the red/pink primary for actions, active navigation, critical attention and brand moments—not for every chart or status.
+2. Reference Inputs
+The final visual direction is based on the two user-provided references. The palette reference is the supplied Slate Dark screenshot plus the linked 21st.dev theme page; the motion reference is the uploaded Codex Astra recording. 21st describes its community themes as complete design-token sets used across real UI surfaces, which supports treating the palette as a system rather than a collection of isolated swatches.
+Palette reference URL: 21st.dev Slate Dark theme
+
+Figure 1. Supplied Slate Dark palette reference; used as the visual source for PulseOps tokens.
+
+Figure 2. Motion reference contact sheet from the supplied Codex Astra recording: particle atmosphere, centered cards, large type reveals and soft depth.
+3. Final Color System
+The following base values are taken from the supplied screenshot swatches by pixel sampling. They should be treated as the working PulseOps design tokens; implementation can translate them into CSS variables / shadcn tokens later.
+Token
+Reference value
+Use
+Primary
+#E50039
+Primary CTA, active nav, brand mark, focus emphasis
+Secondary
+#333333
+Secondary buttons, neutral controls
+Accent
+#660019
+Deep brand accent, selected emphasis, subtle surfaces
+Muted
+#262626
+Muted UI surfaces and secondary backgrounds
+Destructive
+#A52727
+Delete, destructive confirmation and severe error state
+Border
+#333333
+Dividers, card boundaries, input borders
+Card
+#1F1F1F
+Cards, panels, elevated surfaces
+Background
+#191919
+Global application background
+Text primary
+#F7F7F7
+Headings, key data
+Text secondary
+#A7A7A7
+Descriptions, timestamps, supporting metadata
+
+Status colors
+Green = healthy/resolved, amber = warning/degraded, blue = informational, red = critical/error. Status color must be paired with text or an icon so meaning is never color-only.
+
+4. Typography, Spacing and Shape Language
+System
+Decision
+Typeface
+Poppins for the product UI; use a close system fallback when Poppins is unavailable.
+Page title
+32–40 px desktop; 26–30 px tablet; 24–26 px mobile.
+Section title
+20–24 px.
+Body
+14–16 px; muted metadata 12–13 px.
+Radius
+Default 4 px for compact controls; 8 px for cards where needed; do not over-round every surface.
+Spacing grid
+4 px base with 8 / 12 / 16 / 24 / 32 / 48 px as common steps.
+Border weight
+1 px; use subtle contrast, not glowing borders.
+
+5. Application Shell and Navigation
+The authenticated product uses a persistent left sidebar and a compact top bar. The sidebar stays stable while content changes in the main canvas. The goal is zero-surprise navigation: every destination remains one click away from the main dashboard.
+Area
+Behavior
+Logo / brand
+Top of sidebar; clicking returns to Overview.
+Overview
+Default post-login route; high-level health, alerts, incidents and key metrics.
+Services
+List and search all monitored services; click a service for detail.
+Incidents
+View active and historical incidents; filters by severity/status/service.
+Alerts
+Manage detection rules and alert history.
+Metrics
+Explore service metrics and time ranges.
+Logs
+Search and filter collected application logs.
+AI Assistant
+Ask system-aware questions; assistant answers from available telemetry.
+Reports
+Later-phase reporting/export surface; keep route reserved.
+Settings
+Profile, workspace, notification, integrations and system preferences.
+Top bar
+Global search, time range, notifications and user menu.
+
+6. Navigation Map and Route Logic
+Route
+Entry
+Primary actions
+Next routes
+/login
+Unauthenticated entry
+Sign in
+/overview
+/onboarding
+First login / no services
+Add first service, view guided setup
+/services/new or /overview
+/overview
+Sidebar / post-login
+Inspect health, alerts, incidents
+/services, /incidents, /alerts, /metrics, /logs, /ai
+/services
+Sidebar / dashboard
+Search, filter, add service
+/services/:id, /services/new
+/services/:id
+Service row/card
+Inspect telemetry, open logs, create incident note
+/logs?service=:id, /incidents/new?service=:id
+/incidents
+Sidebar / alert click
+Filter, open, assign, resolve
+/incidents/:id
+/incidents/:id
+Incident list / notification
+Timeline, acknowledge, resolve, AI analysis
+/ai?incident=:id
+/alerts
+Sidebar / overview alert widget
+Create/edit/disable rules
+/alerts/:id
+/metrics
+Sidebar / service detail
+Change time range, inspect charts
+/services/:id
+/logs
+Sidebar / service detail / incident
+Search, filter, inspect event
+/incidents/:id or /services/:id
+/ai
+Sidebar / incident detail
+Ask question, attach context
+stays on /ai or returns to source
+/settings
+Sidebar / profile menu
+Update preferences / integrations
+/overview
+
+7. Screen-by-Screen UI/UX Brief
+7.1 Login
+Purpose: secure entry with minimal friction.
+Brand mark + PulseOps wordmark
+Email and password fields
+Primary “Sign in” button in brand red
+Remember-me option and password recovery
+Subtle animated background texture only; no distracting dashboard motion
+Navigation logic
+Success → Overview; invalid credentials → inline error; network error → banner with retry.
+
+7.2 First-time Onboarding
+Purpose: get a new user from zero to first monitored service.
+Short 3-step progress indicator
+Step 1: name workspace
+Step 2: choose/add demo service
+Step 3: show connection status and finish
+Navigation logic
+Finish → Overview; skip → Overview with a “Add your first service” empty state.
+
+7.3 Overview / Home
+Purpose: answer “Is my system okay?” within 5 seconds.
+System health summary
+Total services / healthy services / active incidents / request volume cards
+Request rate chart
+Response-time chart
+Error-rate chart
+Service health donut or segmented summary
+Recent alerts
+Active incidents
+Recent activity
+AI assistant preview panel
+Add Service CTA
+Navigation logic
+Clicking a service → service detail; clicking alert → alert or incident; clicking incident → incident detail; “View all” → corresponding list.
+
+7.4 Services
+Purpose: inventory and scan monitored systems.
+Search
+Status filters
+Service rows/cards with status, request rate, error rate, latency
+Add service button
+Compact health indicator
+Navigation logic
+Service click → service detail; Add → service setup; unhealthy state → quick link to logs/incidents.
+
+7.5 Service Detail
+Purpose: understand one service deeply.
+Service header with health state
+Key metrics row
+Latency/request/error charts
+Recent alerts
+Recent logs
+Incident history
+Open incident / view logs actions
+Navigation logic
+Logs button → filtered logs; incident row → incident detail; back → services.
+
+7.6 Incidents
+Purpose: triage and track problems.
+Active/History tabs or filters
+Severity/status chips
+Service column
+Opened time / duration
+Assignee
+Search + filter controls
+Navigation logic
+Incident row → detail; resolve/acknowledge from row only if the action is unambiguous and reversible.
+
+7.7 Incident Detail
+Purpose: explain what happened and coordinate resolution.
+Incident title + severity
+Affected service
+Current status
+Timeline of alerts/events
+Key telemetry snapshot
+Logs/trace links
+Assignee and notes
+AI analysis panel
+Acknowledge / Resolve actions
+Navigation logic
+Resolve → confirmation then resolved state; AI → assistant with incident context; logs → filtered logs.
+
+7.8 Alerts
+Purpose: manage detection rules.
+Rule name
+Metric/event source
+Condition
+Threshold
+Current status
+Last triggered
+Enable/disable control
+Navigation logic
+Create/edit → rule form; triggered alert → incident if rule policy is configured to create one.
+
+7.9 Metrics
+Purpose: inspect performance over time.
+Time-range selector
+Metric cards
+Line/area charts
+Legend and tooltip
+Service filter
+Compare previous period
+Navigation logic
+Click data point → contextual tooltip; shortcut to incident if the metric is associated with one.
+
+7.10 Logs
+Purpose: search raw event context.
+Search bar
+Time range
+Level filter
+Service filter
+Expandable log row
+Request/correlation ID
+Copy event
+Navigation logic
+Opening a log event can link to service or incident context if IDs exist.
+
+7.11 AI Assistant
+Purpose: explain telemetry, not invent facts.
+Chat-style panel
+Context chips for service/incident/time range
+Suggested questions
+Answer with supporting evidence
+Links to relevant logs/metrics/incidents
+Navigation logic
+AI answers → keep user in context; clicking evidence → corresponding source screen.
+
+7.12 Settings
+Purpose: account and product configuration.
+Profile
+Workspace
+Notifications
+Integrations
+Theme
+Security/session controls
+Navigation logic
+Save → inline success; destructive actions require explicit confirmation.
+
+8. Add-Service Journey
+The Add Service flow is the key bridge between the customer’s application and PulseOps. It must be simple enough for the MVP and explicit enough that a developer understands what is being connected.
+1. Open Services → Add Service.
+2. Choose service name and environment (Development / Staging / Production).
+3. Show the monitoring connection step with the exact endpoint/configuration needed by the demo app.
+4. Test connection and show immediate result: Connected, Warning or Failed.
+5. On success, create the service record and open its detail page.
+6. Offer “View Overview” and “Open Logs” as the two most useful next actions.
+9. Incident and Alert Lifecycle
+Stage
+UI state
+User action
+Detected
+Alert appears / new incident card
+Open incident or inspect alert evidence
+Open
+Incident is visible in Active Incidents
+Assign, acknowledge, investigate
+Investigating
+Timeline + telemetry available
+Open logs, metrics, AI analysis
+Resolved
+Status becomes Resolved, red emphasis removed
+Review resolution notes
+Historical
+Available in incident history
+Filter/search for audit and learning
+
+10. Homepage Animation Direction
+The supplied motion reference uses a dark atmospheric field, slow particle drift, centered UI cards, large editorial typography and staged transitions. PulseOps should translate those qualities into a technical monitoring context rather than a space theme. The motion should feel like telemetry coming alive: subtle particles or data points in the hero, a soft focus shift, then a crisp dashboard/product reveal.
+Moment
+Animation
+Timing guidance
+Entry
+Background texture fades from near-black; fine data particles drift slowly at low opacity.
+700–1000 ms
+Brand reveal
+PulseOps mark and wordmark fade + slight upward motion.
+400–600 ms
+Hero statement
+Large heading enters line-by-line or with a soft upward reveal; no typewriter effect.
+500–800 ms
+Primary visual
+A floating product card/dashboard mockup eases in with subtle 3D tilt and depth.
+700–1000 ms
+CTA
+Red primary CTA appears after the hero copy, with a small hover lift.
+250–350 ms
+Scroll transition
+Hero elements gently reduce opacity/scale as the product preview moves into the next section.
+500–800 ms
+Dashboard load
+Metric cards stagger in; charts draw from left to right; alerts enter only when relevant.
+300–600 ms
+
+Motion rule
+Never animate every card continuously. Ambient motion belongs to the landing page; the authenticated dashboard should be mostly still, using animation only for updates, transitions and focus.
+
+11. Microinteractions and States
+Component
+Default
+Hover / focus
+Active / feedback
+Primary button
+Solid red
+Slight lift + darker red shadow
+Pressed scale 0.98; loading spinner
+Sidebar item
+Transparent
+Subtle surface highlight
+Red background/indicator + white label
+Card
+Dark surface
+1 px border emphasis
+Optional pressed state only for clickable cards
+Status chip
+Tinted neutral
+No major movement
+Color + text + icon
+Input
+Dark surface + border
+Border emphasis
+Red focus ring; inline validation
+Chart
+Static line
+Tooltip / highlight
+Animated draw only on first load or time-range change
+Notification
+Compact badge
+Soft emphasis
+Badge count updates without layout jump
+
+12. Responsive Behavior
+Breakpoint
+Layout
+Navigation
+Desktop ≥ 1200px
+Fixed sidebar + wide content canvas; 12-column dashboard grid.
+Persistent sidebar.
+Tablet 768–1199px
+Sidebar narrows or collapses; 2-column metric/chart layout.
+Collapsible sidebar with remembered state.
+Mobile < 768px
+Single-column cards, horizontally scrollable chart toolbar, condensed tables.
+Bottom nav or slide-out drawer; critical actions stay visible.
+
+13. Accessibility and UX Safety
+Do not communicate severity by color alone; pair each status with text or icon.
+Keyboard focus must be visible for all buttons, links, fields and sidebar navigation.
+Charts need textual summaries for key values.
+Loading states must reserve space to prevent layout shift.
+Destructive actions such as delete/disable must have confirmation and clear consequences.
+Errors should be local to the failing field when possible and global only when the whole action failed.
+14. Component and Token Handoff
+Component group
+Shared primitives
+Navigation
+Sidebar, top bar, breadcrumbs, user menu, notification badge
+Data display
+Stat card, status chip, data table, activity row, empty state
+Monitoring
+Metric card, chart shell, legend, time-range control, health indicator
+Incident
+Incident card, severity chip, timeline, event row, resolution dialog
+Forms
+Text input, select, switch, checkbox, inline validation, confirmation modal
+AI
+Assistant shell, message bubble, evidence chip, source link, suggested prompt
+Feedback
+Toast, banner, skeleton, spinner, error state
+
+15. Design Do / Don’t
+Do
+Don’t
+Use dark slate surfaces with subtle hierarchy.
+Use pure black + pure white everywhere.
+Use red for brand/action/critical emphasis.
+Color every chart and every success state red.
+Use cinematic motion on the landing page.
+Use looping glow/particle animation behind operational data.
+Keep dashboard interactions immediate and quiet.
+Make operational screens behave like a marketing page.
+Show evidence beside AI conclusions.
+Let AI present unsupported guesses as facts.
+Design empty, loading and error states intentionally.
+Treat them as afterthoughts.
+
+16. Final UI/UX Implementation Priority
+1. Lock tokens: colors, typography, radius, spacing, shadows.
+2. Build the authenticated shell: sidebar + top bar + routing.
+3. Build Overview dashboard with static mock data.
+4. Build Services + Service Detail.
+5. Build Incidents + Incident Detail.
+6. Build Alerts, Metrics and Logs.
+7. Add Add-Service onboarding flow.
+8. Add AI Assistant shell and evidence links.
+9. Add homepage cinematic animation and hero product reveal.
+10. Run responsive, accessibility and state reviews before backend data is wired.
+
+17. UI/UX Acceptance Criteria
+•  A new user understands the product purpose quickly and can reach the main dashboard without confusion.
+•  Overview, Services, Incidents, Alerts, Metrics and Logs are reachable in one click from persistent navigation.
+•  Service and incident detail screens preserve context and link directly to related logs, metrics and evidence.
+•  Primary, secondary and destructive actions look and behave consistently across the product.
+•  Landing motion is cinematic; operational screens remain calm, fast and readable, with clear loading, empty, error and success states. Color is never the only source of meaning.
+18. Design Handoff Checklist
+Handoff item
+Definition of done
+Design tokens
+Colors, type scale, spacing, radius, borders and status colors are implemented as reusable variables.
+Navigation
+All routes in the navigation map exist with active, hover, loading and error states.
+Dashboard
+Overview answers system health, active incidents and key performance questions without scrolling through unrelated content.
+Incident flow
+Alert → incident → investigation → resolution is represented consistently across screens.
+Motion
+Landing-page animation follows the supplied cinematic reference; dashboard motion is restrained and functional.
+Responsive
+Desktop, tablet and mobile layouts are defined before production styling is considered complete.
+Accessibility
+Keyboard focus, labels, contrast, status text and non-color cues are verified.
+Developer handoff
+Figma/component references, route list, token list and interaction notes are available alongside implementation.
+
+Final direction locked
+Use this brief as the visual source of truth while building the frontend. Any deviation from the palette, navigation model or motion rules should be intentional and documented.

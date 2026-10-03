@@ -1,0 +1,435 @@
+
+PULSEOPS
+Implementation Plan
+From approved UX direction to a working observability and incident-monitoring MVP
+
+Document
+Status
+Basis
+Implementation Plan
+Locked working plan
+PRD + TRD + App Flow + Backend Schema + UI/UX brief
+Primary stack
+Locked
+React • FastAPI • PostgreSQL • Redis • OpenTelemetry • Prometheus • Docker
+Build method
+Phase-gated
+One phase at a time; review before moving forward
+
+Critical design ruleThe homepage animation must use the SAME application colour system as the rest of PulseOps. The supplied visual reference may inspire motion, composition and atmosphere, but its blue/cosmic colours must not be copied literally; the motion treatment will be recoloured into the approved Slate Dark system.
+
+
+Version 1.0  •  October 2026
+
+1. Implementation objective
+PulseOps will be built as a realistic, understandable MVP that monitors an application we control. The implementation must create real monitoring data, detect simple operational problems, surface them in a usable dashboard, turn them into incidents, and later provide an AI-assisted incident summary. The project is intentionally not being expanded into a full enterprise monitoring platform during the initial build.
+Objective
+What “done” means
+Real telemetry
+The demo application produces measurable requests, errors and response-time data.
+Operational visibility
+PulseOps stores and displays service health, metrics, alerts and incidents.
+Actionable incidents
+A rule can turn abnormal behaviour into an incident with a clear state lifecycle.
+Understandable engineering
+The code, architecture and decisions can be explained by the project owner in an interview.
+Production-minded foundation
+Docker, configuration, tests, logging and CI are present without unnecessary infrastructure.
+
+2. Locked scope
+Demo FastAPI application with normal, slow and failure endpoints.
+PulseOps backend API for services, telemetry, alerts, incidents and assistant requests.
+PostgreSQL for durable application data.
+Redis for lightweight queue/background processing where required.
+React dashboard with the approved Slate Dark visual system.
+OpenTelemetry + Prometheus for metrics/telemetry collection.
+Docker for repeatable local execution and later deployment.
+AI incident assistant only after the non-AI system works.
+Tests, documentation, Git workflow and deployment-ready configuration.
+Scope guardrailDo not add Kubernetes, Kafka, service mesh, multi-cloud, autonomous remediation, custom ML models or other advanced infrastructure during the core MVP unless a later decision explicitly expands the scope.
+
+
+3. Target implementation architecture
+Demo App -> Telemetry / Metrics -> PulseOps Backend -> PostgreSQL                                 -> Redis / WorkerReact Dashboard ← REST API ← PulseOps BackendObservability: OpenTelemetry + PrometheusLater: AI Incident Assistant reads selected logs/metrics/incident context
+The implementation order follows dependency direction: first create a working source of events, then create the backend contract and data model, then connect telemetry, then build the UI on real APIs, then add operational automation and finally the AI layer.
+Layer
+Primary responsibility
+Initial implementation
+Demo application
+Generate real request/error/latency behaviour
+FastAPI + Uvicorn
+API/backend
+Business logic and contracts
+FastAPI + Python
+Data
+Durable application state
+PostgreSQL
+Async processing
+Non-blocking alert/incident tasks
+Redis + worker
+Frontend
+Navigation, visualisation and actions
+React
+Observability
+Metrics, logs and traces
+OpenTelemetry + Prometheus
+Packaging
+Repeatable local environment
+Docker / Compose
+AI layer
+Incident summary and evidence-linked suggestions
+LLM API integration added last
+
+
+4. Phase plan at a glance
+Phase
+Primary outcome
+Exit gate
+0. Project setup
+Repo, conventions, environments, base folders
+Repo installs and runs cleanly
+1. Demo app
+Known source of healthy/slow/error events
+All demo endpoints verified
+2. Backend foundation
+FastAPI structure + auth + health + API versioning
+Core endpoints tested
+3. Data layer
+PostgreSQL schema + migrations
+CRUD and constraints verified
+4. Telemetry
+Ingestion of real monitoring data
+Telemetry visible in storage
+5. Detection
+Rules turn abnormal data into alerts
+Known failure creates alert
+6. React shell
+Navigation + design system + base layouts
+All primary routes render
+7. Dashboard
+Overview and service views use live API data
+Core monitoring flows usable
+8. Incidents
+Lifecycle, timeline, assignment, resolution
+Alert can become resolved incident
+9. Async + observability
+Redis worker + OTel/Prometheus integration
+Background processing + telemetry verified
+10. AI assistant
+Evidence-based incident summary
+AI works with fallback and logging
+11. Hardening
+Tests, Docker, CI, docs, deployment
+Release checklist passes
+
+
+5. Detailed implementation sequence
+Phase 0 — Project setup
+Create the repository and top-level structure before writing feature code.
+Create separate frontend, backend, demo-app and infrastructure folders as agreed by the TRD.
+Add .gitignore, environment templates, README and basic development scripts.
+Choose a single package/version strategy and document it.
+Create a baseline branch and first clean commit.
+Exit gate: A blank machine can clone the repo and start each component using the documented commands.
+Phase 1 — Demo application
+Build the FastAPI demo service.
+Implement /, /api/health, /api/users, /api/orders, /api/slow and /api/error.
+Keep the app intentionally simple; it exists to produce measurable behaviour.
+Verify normal, slow and 500-response scenarios manually and with basic tests.
+Exit gate: The demo app produces deterministic healthy, latency and failure scenarios.
+Phase 2 — Backend foundation
+Create FastAPI application package and versioned /api/v1 routes.
+Add configuration loading, structured error responses and a health endpoint.
+Create service, repository and schema layers only where useful; avoid over-abstraction.
+Prepare authentication and role checks for the dashboard users.
+Add API documentation through FastAPI/OpenAPI.
+Exit gate: Backend starts, health check passes, API docs are available, and core contract tests pass.
+Phase 3 — Data layer
+Implement PostgreSQL schema from the locked backend schema document.
+Create users/roles, services, telemetry records, alerts, incidents, incident events and audit records as applicable to the MVP.
+Add primary/foreign keys, unique constraints and timestamps.
+Add indexes only for known access patterns.
+Add migrations and seed data for local development.
+Exit gate: Fresh database can migrate from zero to current schema and pass integrity tests.
+Phase 4 — Telemetry
+Add the first telemetry contract between the demo app and PulseOps.
+Capture request count, status/error signals and response duration.
+Persist the minimum data needed for dashboard and alert rules.
+Add correlation/request identifiers so events can later be tied together.
+Keep the first ingestion path simple before introducing background processing.
+Exit gate: A test run can generate telemetry that appears in PulseOps storage and can be queried by service and time range.
+Phase 5 — Detection and alerts
+Implement simple threshold/rule checks first.
+Examples: error rate above threshold, response time above threshold, service unhealthy.
+Prevent duplicate alert creation for the same active condition.
+Persist alert state and timestamps.
+Expose alert listing and detail APIs.
+Exit gate: A controlled failure in the demo app creates exactly the expected alert and does not flood duplicates.
+Phase 6 — React application shell
+Create the approved Slate Dark token system as reusable theme variables.
+Build global layout: sidebar, top bar, page container, breadcrumbs/search and notification affordances.
+Implement protected routes and loading/error states.
+Build reusable cards, badges, buttons, tables, tabs, drawers/modals and charts.
+Keep page composition simple and data-driven.
+Exit gate: All planned primary routes render with consistent spacing, typography, colours and interaction states.
+Phase 7 — Dashboard and service views
+Connect Overview cards and charts to live backend data.
+Build Services list, service detail, health status and recent telemetry.
+Build Alerts list and alert detail.
+Add empty, loading and error states.
+Add filtering/time-range controls only where backed by APIs.
+Exit gate: A developer can go from Overview to a service and see real state and measurements.
+Phase 8 — Incident lifecycle
+Create incident automatically from a qualifying alert or manually when needed.
+Support Open, Investigating, Resolved and Closed states as defined by the flow.
+Add timeline/events for acknowledgement, assignment, notes and resolution.
+Add incident detail route and deep-link behaviour.
+Ensure incident actions are permission-aware.
+Exit gate: A controlled outage goes Alert → Incident → Investigating → Resolved with history preserved.
+Phase 9 — Async processing and observability
+Introduce Redis for tasks that do not need to block request/response.
+Move notifications, enrichment or AI-preparation work to background processing where justified.
+Add OpenTelemetry instrumentation for the backend and demo app.
+Expose Prometheus-compatible metrics and connect dashboard/monitoring views.
+Validate service failure behaviour and retry limits.
+Exit gate: Background work is observable, bounded and testable; telemetry can show service behaviour end-to-end.
+Phase 10 — AI incident assistant
+Collect only the incident context allowed by the data contract.
+Create a structured AI request containing incident, metrics/log excerpts and recent events.
+Return summary, evidence, possible causes and suggested next checks.
+Never present AI guesses as confirmed root cause.
+Log AI request/result metadata without storing secrets.
+Exit gate: An incident can be summarized from real data, with clear evidence and a visible AI/fallback state.
+Phase 11 — Hardening and release
+Run unit, integration and end-to-end tests.
+Containerize services and provide Docker Compose for local setup.
+Add CI for lint/test/build.
+Check secrets, validation, permissions, rate limits and error handling.
+Complete README, architecture diagram, setup guide, demo script and known limitations.
+Create release tag and deployment checklist.
+Exit gate: Fresh installation, tests, build and demo all pass from documented instructions.
+
+6. Frontend implementation order
+The frontend should not be built as disconnected static mockups. Build the shell first, then connect one complete user journey at a time with real API responses.
+Order
+Route / area
+Implementation focus
+1
+Homepage / Landing
+Opening animation, brand, CTA, navigation into the app
+2
+Auth
+Login/session state, validation, redirect to Overview
+3
+/overview
+KPI cards, request/latency/error charts, alerts, service health
+4
+/services
+Service table, filters, status, drill-down
+5
+/services/:id
+Service health, recent telemetry, related alerts/incidents
+6
+/alerts
+Alert list, status/severity/filter states
+7
+/alerts/:id
+Alert detail and create/open incident action
+8
+/incidents
+Incident list, filters, severity and status
+9
+/incidents/:id
+Incident timeline, evidence, actions, AI summary
+10
+/metrics
+Time-range metrics and focused charts
+11
+/logs
+Search/filter and event inspection
+12
+/ai-assistant
+Assistant interaction with context-aware incident support
+13
+/settings
+Profile, project configuration and safe operational settings
+
+7. Homepage animation implementation specification
+Animation requirement — MUST be consistent with the product paletteThe reference video is used only for motion language: deep atmospheric background, floating/centered content, particles, gentle camera movement, focus transitions and staged text/card entrances. The PulseOps implementation must recolour the entire effect to the same Slate Dark + PulseOps primary red/magenta system used in the dashboard; no separate blue/nebula palette should appear on the homepage.
+
+Reference motion direction, translated into PulseOps:
+Opening: near-black/slate background with a subtle field of particles or signal pulses.
+Brand reveal: PulseOps mark/wordmark enters with a restrained pulse or line-draw effect, not a glowing rainbow treatment.
+Hero content: central panel/card enters with slight scale-up + opacity transition and soft depth/parallax.
+Ambient motion: small red/magenta particles or signal dots move slowly; motion must never reduce text readability.
+Interaction: CTA/button hover uses the same primary colour token; status colours are reserved for status communication.
+Transition into the app: hero elements settle and the dashboard/app navigation becomes the visual focus.
+Reduced motion: respect prefers-reduced-motion and replace movement with simple fades.
+Token / role
+Implementation guidance
+Background
+Deep Slate / near-black, continuous with the dashboard background.
+Primary
+Bright red/magenta for the brand, CTAs, active navigation and key emphasis.
+Accent
+Dark red/burgundy for depth and secondary emphasis.
+Neutral
+Muted grays for copy, borders, cards and controls.
+Success
+Green only for healthy/resolved states.
+Warning
+Amber only for warnings/degraded states.
+Info
+Blue only where an information/status state needs it; not as the homepage brand atmosphere.
+
+8. Backend implementation order
+Step
+Module
+Result
+1
+Configuration
+Environment variables, secrets boundary, settings object
+2
+Core app
+FastAPI app, middleware, exception handling, health
+3
+Auth
+User/session/token handling and role checks
+4
+Service APIs
+Create/list/detail/update for monitored services
+5
+Telemetry API
+Ingest and query telemetry using the schema contract
+6
+Alert engine
+Rules, deduplication, state and query endpoints
+7
+Incident module
+Lifecycle actions, timeline, evidence and audit events
+8
+Background worker
+Redis-backed task processing with bounded retries
+9
+Observability
+OpenTelemetry instrumentation and Prometheus metrics
+10
+AI adapter
+Structured request/response with timeout/fallback
+
+9. Data and API discipline
+The PostgreSQL schema is the source of truth for persistent application state.
+API request/response models must match the backend schema/data-contract document.
+Frontend should consume APIs rather than duplicating business rules in the browser.
+Business rules such as alert deduplication and incident transitions belong in the backend.
+Every new field or status should be reflected in schema, API model, UI state and documentation before use.
+10. AI-assisted implementation workflow
+AI coding tools such as Claude or Antigravity may be used for implementation, but the project must remain understandable and testable. The AI tool should receive only one phase at a time and must not be asked to generate the whole system in one shot.
+Give the AI tool the locked project context and the current phase only.
+Ask it to inspect existing files before changing code.
+Require a short explanation of any new dependency or architecture decision.
+Run the generated code and tests locally.
+Review errors and diffs before asking for the next change.
+Update the documentation when the implementation changes an approved contract.
+Move to the next phase only after the current exit gate passes.
+Non-negotiableThe AI tool is a coding assistant, not the system architect. The architecture, scope, navigation logic and design tokens remain the locked project decisions in this plan.
+
+11. Testing and validation plan
+Layer
+What to test
+Examples
+Unit
+Small business rules
+Alert thresholds, status transitions, validation
+API / integration
+Service-to-service contracts
+Telemetry ingestion, auth, incident creation
+Database
+Schema integrity
+Foreign keys, unique constraints, migration from zero
+Frontend
+States and navigation
+Routes, loading/error/empty states, deep links
+End-to-end
+Complete journeys
+Failure → alert → incident → resolution
+Visual
+Design consistency
+Slate Dark tokens, spacing, typography, animation states
+Performance
+Basic behaviour under load
+Latency, request handling, background worker timing
+
+12. Critical end-to-end demo scenario
+1. Start demo application2. Start PulseOps backend + database3. Start React dashboard4. Open Overview and confirm demo service is healthy5. Trigger /api/slow several times6. Verify response-time telemetry changes7. Trigger /api/error several times8. Verify alert rule detects abnormal error rate9. Open alert → create/open incident10. Investigate using service metrics/logs11. Resolve the incident12. Open AI Assistant and generate an evidence-based summary
+13. Release and deployment plan
+Local: Docker Compose starts PostgreSQL, Redis, backend, frontend and monitoring dependencies.
+CI: install dependencies, run lint/tests, build frontend, build backend image.
+Environment separation: local/dev values must be separated from deployment secrets.
+Deployment: choose one simple hosting path after MVP stability; do not add cloud complexity before the application is stable.
+Post-deploy smoke test: health endpoints, auth, service overview, telemetry ingestion and incident creation.
+14. Practical schedule
+A realistic schedule for a second-year developer using AI coding support while still learning the system is approximately 3–5 weeks for the portfolio-quality MVP, assuming steady work and time for debugging and understanding.
+Week
+Focus
+Expected milestone
+Week 1
+Setup + demo app + backend foundation + database
+Core backend and data model running
+Week 2
+Telemetry + alert rules + React shell
+Live monitoring data visible in UI
+Week 3
+Dashboard + services + incidents
+Main user journey works end-to-end
+Week 4
+Redis + OpenTelemetry + Prometheus + Docker
+Operational foundation complete
+Week 5
+AI assistant + tests + polish + docs
+Release candidate and interview-ready demo
+
+15. Definition of Done
+The demo app can generate healthy, slow and failing requests.
+PulseOps receives and stores measurable telemetry.
+The dashboard reflects live service state and key metrics.
+Alert rules detect defined abnormal conditions without duplicate flooding.
+Alerts can enter an incident lifecycle with auditable state changes.
+Incident details show enough evidence for a developer to investigate.
+Homepage animation matches the motion direction of the reference while using the same PulseOps colour system as the rest of the product.
+The UI has consistent loading, empty, error, success and reduced-motion states.
+Redis/background processing is bounded, observable and tested where used.
+OpenTelemetry/Prometheus instrumentation is working and documented.
+AI summaries clearly separate evidence from possible causes and support fallback behaviour.
+Docker setup and CI work from a clean checkout.
+README, architecture, data schema, API contract and demo steps are updated.
+The developer can explain the main modules, data flow and failure scenario without relying on generated answers.
+16. Risks and controls
+Risk
+Impact
+Control
+Scope creep
+High
+Phase gates and explicit exclusions.
+AI-generated code not understood
+High
+One phase at a time; review and explain every major module.
+Over-engineering
+High
+Prefer simple architecture until a real requirement demands more.
+UI built before API contracts
+Medium
+Lock data contracts first and connect real APIs early.
+Animation drifts from product identity
+Medium
+Use shared theme tokens and require animation review against the main dashboard palette.
+Too much infrastructure too early
+High
+Docker first; Kubernetes/Kafka/etc. remain out of MVP.
+False AI root-cause confidence
+High
+AI wording must say possible cause/suggestion and show evidence.
+
+17. Final implementation sequence — single source of truth
+SETUP -> DEMO APP -> BACKEND FOUNDATION -> DATABASE + MIGRATIONS -> TELEMETRY INGESTION -> ALERT RULES -> REACT SHELL + SLATE DARK DESIGN SYSTEM -> HOMEPAGE + BRAND ANIMATION (same palette as full app) -> OVERVIEW + SERVICES -> ALERTS + INCIDENTS -> REDIS + WORKERS -> OPENTELEMETRY + PROMETHEUS -> AI INCIDENT ASSISTANT -> TESTING + DOCKER + CI -> DOCUMENTATION + DEPLOYMENT
+Final instruction for implementation toolsDo not skip phases, do not generate the complete system at once, and do not introduce a new library or infrastructure component without explaining the concrete requirement it solves. The homepage animation is part of the same design system—not a visually separate experiment.

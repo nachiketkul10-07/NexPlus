@@ -1,0 +1,235 @@
+"""
+PulseOps Controllable Demo Application
+Simulates normal, slow, and error traffic patterns for PulseOps observability.
+"""
+import os
+import time
+import asyncio
+import httpx
+from datetime import datetime, timezone
+from typing import Dict, List, Any
+from fastapi import FastAPI, Query, HTTPException, status, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+app = FastAPI(
+    title="PulseOps Demo Application",
+    description="Controllable target application monitored by PulseOps",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+demo_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "DEMO_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=demo_origins,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Accept", "Content-Type"],
+)
+
+# Telemetry client settings
+INGEST_URL = os.getenv("PULSEOPS_INGEST_URL", "http://localhost:8000/api/v1/telemetry/events")
+INGEST_KEY = os.getenv("PULSEOPS_INGEST_KEY", "pik_dev_demo_app_secret_key_12345")
+ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "true").lower() in ("true", "1", "yes")
+
+# OpenTelemetry Instrumentation for Demo Application
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "pulseops-demo-app")
+    OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() in ("true", "1", "yes")
+
+    if OTEL_ENABLED:
+        resource = Resource.create(attributes={SERVICE_NAME: OTEL_SERVICE_NAME})
+        provider = TracerProvider(resource=resource)
+        trace.set_tracer_provider(provider)
+        FastAPIInstrumentor().instrument_app(app, tracer_provider=provider)
+except Exception as _otel_exc:
+    pass
+
+
+
+async def _post_telemetry(payload: Dict[str, Any]) -> None:
+    """Asynchronously dispatches HTTP telemetry observation to PulseOps ingestion engine."""
+    if not ENABLE_TELEMETRY:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(
+                INGEST_URL,
+                json=payload,
+                headers={"X-Ingest-Key": INGEST_KEY}
+            )
+    except Exception:
+        # Silently absorb connection errors so demo application is never degraded
+        pass
+
+
+@app.middleware("http")
+async def telemetry_middleware(request: Request, call_next):
+    """Observes request lifecycle and reports telemetry to PulseOps."""
+    start_time = time.time()
+    error_msg = None
+    status_code = 500
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    except Exception as exc:
+        error_msg = str(exc)
+        raise exc
+    finally:
+        duration_ms = int((time.time() - start_time) * 1000)
+        outcome = "success"
+        if status_code >= 400:
+            outcome = "error"
+        elif duration_ms >= 1000:
+            outcome = "slow"
+
+        # Ignore doc URLs and internal favicon requests
+        if not request.url.path.startswith(("/docs", "/redoc", "/openapi.json", "/favicon.ico")):
+            payload = {
+                "service_id": "demo-app",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "method": request.method,
+                "endpoint": request.url.path,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+                "outcome": outcome,
+                "error_type": "HTTPError" if status_code >= 400 else None,
+                "error_message": error_msg or (f"HTTP {status_code}" if status_code >= 400 else None),
+                "metadata": {"source": "demo-app-instrumentation"}
+            }
+            asyncio.create_task(_post_telemetry(payload))
+
+
+# Global Exception Handler to prevent stack trace leaks
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail}
+        )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal Server Error"}
+    )
+
+
+# Standard example data
+SAMPLE_USERS: List[Dict[str, Any]] = [
+    {"id": 1, "username": "alice", "email": "alice@example.com", "role": "admin", "status": "active"},
+    {"id": 2, "username": "bob", "email": "bob@example.com", "role": "developer", "status": "active"},
+    {"id": 3, "username": "charlie", "email": "charlie@example.com", "role": "viewer", "status": "inactive"}
+]
+
+SAMPLE_ORDERS: List[Dict[str, Any]] = [
+    {"id": "ord-101", "user_id": 1, "item": "Cloud Monitoring License", "amount": 199.99, "status": "completed"},
+    {"id": "ord-102", "user_id": 2, "item": "Telemetry Ingest Pack", "amount": 49.50, "status": "processing"},
+    {"id": "ord-103", "user_id": 1, "item": "Incident Automation Plugin", "amount": 29.00, "status": "completed"}
+]
+
+
+@app.get("/", status_code=status.HTTP_200_OK)
+async def get_root() -> Dict[str, str]:
+    """Root endpoint returning basic application metadata."""
+    return {
+        "service": "demo-app",
+        "status": "running",
+        "version": "1.0.0"
+    }
+
+
+@app.get("/api/health", status_code=status.HTTP_200_OK)
+async def get_health() -> Dict[str, Any]:
+    """Healthy service status endpoint."""
+    return {
+        "status": "healthy",
+        "service": "demo-app",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@app.get("/api/users", status_code=status.HTTP_200_OK)
+async def get_users() -> List[Dict[str, Any]]:
+    """Returns a list of sample users."""
+    return SAMPLE_USERS
+
+
+@app.get("/api/orders", status_code=status.HTTP_200_OK)
+async def get_orders() -> List[Dict[str, Any]]:
+    """Returns a list of sample orders."""
+    return SAMPLE_ORDERS
+
+
+@app.get("/api/slow", status_code=status.HTTP_200_OK)
+async def get_slow(
+    delay: float = Query(
+        default=3.0,
+        ge=0.0,
+        le=10.0,
+        description="Simulated latency in seconds (0.0 to 10.0)"
+    )
+) -> Dict[str, Any]:
+    """
+    Intentionally delays response using non-blocking async sleep.
+    Bounded between 0.0s and 10.0s to prevent resource exhaustion attacks.
+    """
+    await asyncio.sleep(delay)
+    return {
+        "status": "completed",
+        "requested_delay_seconds": delay,
+        "message": f"Response completed after {delay} second(s)"
+    }
+
+
+@app.get("/api/error")
+async def get_error():
+    """
+    Intentionally raises HTTP 500 error to simulate application failures.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Simulated server failure endpoint triggered"
+    )
+
+
+@app.post("/api/demo/run", status_code=status.HTTP_200_OK)
+async def run_demo_scenario() -> Dict[str, Any]:
+    """Generate a small, repeatable mix of successful, slow, and failed requests."""
+    paths = [
+        "/api/health",
+        "/api/users",
+        "/api/orders",
+        "/api/slow?delay=1.1",
+        "/api/error",
+        "/api/error",
+    ]
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://demo-app.local") as client:
+        results = await asyncio.gather(*(client.get(path) for path in paths))
+
+    # Let the middleware's asynchronous ingestion posts finish before reporting success.
+    await asyncio.sleep(0.3)
+    failed = sum(1 for result in results if result.status_code >= 400)
+    return {
+        "status": "completed",
+        "requests_generated": len(results),
+        "successful_requests": len(results) - failed,
+        "failed_requests": failed,
+        "slow_requests": 1,
+    }
+

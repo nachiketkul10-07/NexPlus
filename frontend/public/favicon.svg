@@ -1,0 +1,24 @@
+<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" rx="20" fill="#191919" />
+  <linearGradient id="nGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stopColor="#E50039" />
+    <stop offset="100%" stopColor="#660019" />
+  </linearGradient>
+  <linearGradient id="nGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%" stopColor="#FF1A4B" />
+    <stop offset="100%" stopColor="#990026" />
+  </linearGradient>
+  
+  <path d="M 18,15 L 36,15 L 36,85 L 18,85 Z" fill="url(#nGrad1)" />
+  <path d="M 64,15 L 82,15 L 82,85 L 64,85 Z" fill="url(#nGrad1)" />
+  <path d="M 36,15 L 64,68 L 64,85 L 36,32 Z" fill="url(#nGrad2)" />
+  
+  <path
+    d="M 5,50 L 32,50 L 38,32 L 44,68 L 52,24 L 60,60 L 66,50 L 95,50"
+    stroke="#FFFFFF"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+  />
+</svg>

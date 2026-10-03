@@ -1,0 +1,1106 @@
+
+PULSEOPS
+Backend Schema & Data Contract
+Database model • API schemas • telemetry contracts • lifecycle rules
+
+Document
+Value
+Version
+1.0
+Date
+October 2026
+Project type
+Portfolio / Learning Project
+Backend
+FastAPI + Python
+Primary database
+PostgreSQL
+Async processing
+Redis-backed worker
+Monitoring foundation
+OpenTelemetry + Prometheus (later phase)
+Authentication
+User auth for dashboard + service ingest credential
+
+PurposeThis document defines the backend data model and request/response contracts that implement the locked PulseOps PRD and TRD. It intentionally keeps the MVP small and explainable: no multi-tenant workspace model, no Kafka, no Kubernetes, no autonomous remediation, and no custom ML anomaly detector.
+
+How to use this document
+Use the schema tables as the source of truth while implementing the backend. When a later feature needs a new field or table, update this document first, then update the database migration and API contract together so the backend, frontend and documentation remain aligned.
+
+1. Document Map
+Section
+What it defines
+2
+Backend scope and design principles
+3
+Domain model and ownership
+4
+Database schema overview
+5
+Table-by-table schema
+6
+Relationships and lifecycle rules
+7
+API route and payload contracts
+8
+Telemetry and metric contracts
+9
+Alert evaluation and incident creation
+10
+AI incident analysis schema
+11
+Authentication and security model
+12
+Indexes, constraints and data integrity
+13
+Migrations, seed data and retention
+14
+Backend package structure
+15
+Implementation phases and acceptance checklist
+16
+Example payloads / reference SQL
+
+2. Backend Scope and Design Principles
+PulseOps receives telemetry from an application that we control, persists the useful evidence, evaluates explicit alert rules, creates incidents when conditions qualify, and serves dashboard data to authenticated users. The backend is a modular monolith: one FastAPI application with clearly separated modules is preferred over many independently deployed services.
+Keep the domain model small enough to explain in an interview.
+Prefer PostgreSQL as the source of truth for durable operational state.
+Use Redis only for background jobs and controlled retries; do not make Redis the primary database.
+Persist raw-enough evidence to explain why an alert fired, but avoid building a large log analytics platform.
+Use explicit enums/status values so invalid lifecycle transitions can be rejected by the backend.
+Never store plaintext passwords or plaintext long-lived service ingest secrets.
+AI is advisory and downstream of collected evidence; the AI layer never mutates incident or service state automatically.
+MVP boundaryCore loop: telemetry → rule → alert → incident → investigation → resolution. Advanced tooling is phase-gated.
+
+3. Domain Model and Ownership
+Entity
+Owns / represents
+Primary relationships
+User
+A human who can access PulseOps.
+Views services, alerts and incidents; may act on incidents.
+Service
+A monitored application/service such as demo-app.
+Produces telemetry, metrics and logs; has alerts and incidents.
+Telemetry Event
+One observed request/outcome from an instrumented service.
+Belongs to one service; may be referenced by incident evidence.
+Metric
+Time-stamped aggregate value used by charts/rules.
+Belongs to one service.
+Log Entry
+One application log line/event when available.
+Belongs to one service; can be tied to request/incident context.
+Alert Rule
+A configured threshold condition.
+Applies to one service or globally in the MVP; creates alerts.
+Alert
+A triggered rule condition.
+Belongs to a service and rule; may create one incident.
+Incident
+A trackable operational problem.
+Belongs to a service; optionally originated from an alert.
+Incident Event
+Append-only timeline entry for an incident.
+Belongs to one incident; may have a user actor.
+AI Analysis
+One generated advisory analysis of incident evidence.
+Belongs to one incident and stores model/output metadata.
+
+4. Database Schema Overview
+users  |  +------------------------+  |                        |services                incidents <------ alerts <------ alert_rules  |                        |                 |  +-- telemetry_events     |                 +---- services  +-- metrics              +-- incident_events  +-- logs                 +-- ai_analyses
+MVP tenancy model: one logical deployment is one PulseOps environment. There is intentionally no workspace or organization table in v1.0. A future multi-tenant version can introduce workspaces and workspace_id foreign keys without changing the meaning of the core service/incident entities.
+5. Table-by-Table Schema
+5.1 users
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+UUID
+No
+gen_random_uuid()
+Primary key.
+email
+VARCHAR(320)
+No
+Unique
+Login identifier.
+name
+VARCHAR(120)
+No
+—
+Display name in the UI.
+password_hash
+TEXT
+No
+—
+Argon2id/bcrypt hash; never plaintext.
+role
+VARCHAR(32)
+No
+'developer'
+MVP authorization role.
+is_active
+BOOLEAN
+No
+TRUE
+Disables sign-in without deleting history.
+created_at
+TIMESTAMPTZ
+No
+now()
+Creation timestamp.
+updated_at
+TIMESTAMPTZ
+No
+now()
+Last profile/auth metadata change.
+last_login_at
+TIMESTAMPTZ
+Yes
+NULL
+Useful account/session metadata.
+
+5.2 services
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+UUID
+No
+gen_random_uuid()
+Primary key.
+identifier
+VARCHAR(80)
+No
+Unique
+Stable programmatic identifier, e.g. demo-app.
+name
+VARCHAR(120)
+No
+—
+Human-readable name.
+environment
+VARCHAR(32)
+No
+'development'
+Environment label.
+base_url
+TEXT
+Yes
+NULL
+Optional health/integration URL.
+health_path
+VARCHAR(200)
+No
+'/api/health'
+Health endpoint used by checks.
+status
+VARCHAR(32)
+No
+'unknown'
+healthy | degraded | unhealthy | offline | unknown.
+last_seen_at
+TIMESTAMPTZ
+Yes
+NULL
+Most recent telemetry/check-in.
+ingest_key_hash
+TEXT
+Yes
+NULL
+Hash of service ingest credential; never store raw key.
+created_at
+TIMESTAMPTZ
+No
+now()
+Creation timestamp.
+updated_at
+TIMESTAMPTZ
+No
+now()
+Last configuration change.
+
+5.3 telemetry_events
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+BIGSERIAL / BIGINT
+No
+Identity
+High-volume primary key.
+service_id
+UUID
+No
+FK → services.id
+Source service.
+request_id
+UUID / VARCHAR(64)
+Yes
+NULL
+Correlates related telemetry.
+occurred_at
+TIMESTAMPTZ
+No
+Source timestamp
+When the event happened.
+method
+VARCHAR(10)
+Yes
+NULL
+HTTP method.
+endpoint
+VARCHAR(300)
+Yes
+NULL
+Endpoint path.
+status_code
+SMALLINT
+Yes
+NULL
+HTTP status when applicable.
+duration_ms
+INTEGER
+Yes
+NULL
+Request duration in milliseconds.
+outcome
+VARCHAR(24)
+No
+success | error | timeout
+Normalized request outcome.
+error_type
+VARCHAR(160)
+Yes
+NULL
+Optional exception/error class.
+error_message
+TEXT
+Yes
+NULL
+Sanitized error summary.
+metadata
+JSONB
+Yes
+'{}'
+Small structured context; avoid secrets/large payloads.
+
+5.4 metrics
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+BIGSERIAL / BIGINT
+No
+Identity
+Primary key.
+service_id
+UUID
+No
+FK → services.id
+Owning service.
+metric_name
+VARCHAR(80)
+No
+—
+request_count | error_rate | avg_latency_ms | p95_latency_ms | uptime.
+value
+DOUBLE PRECISION
+No
+—
+Numeric metric value.
+window_seconds
+INTEGER
+No
+60
+Aggregation window.
+recorded_at
+TIMESTAMPTZ
+No
+now()
+Time of metric snapshot.
+
+5.5 logs
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+BIGSERIAL / BIGINT
+No
+Identity
+Primary key.
+service_id
+UUID
+No
+FK → services.id
+Owning service.
+occurred_at
+TIMESTAMPTZ
+No
+Source timestamp
+When log event occurred.
+level
+VARCHAR(16)
+No
+INFO | WARN | ERROR
+Normalized log level.
+message
+TEXT
+No
+—
+Human-readable log message.
+request_id
+UUID / VARCHAR(64)
+Yes
+NULL
+Correlation id if available.
+trace_id
+VARCHAR(64)
+Yes
+NULL
+OpenTelemetry trace id when available.
+stack_trace
+TEXT
+Yes
+NULL
+Optional stack trace; sanitize sensitive fields.
+metadata
+JSONB
+Yes
+'{}'
+Small structured metadata.
+
+5.6 alert_rules
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+UUID
+No
+gen_random_uuid()
+Primary key.
+service_id
+UUID
+Yes
+FK → services.id
+Null means rule can apply to all services in MVP.
+name
+VARCHAR(120)
+No
+—
+Rule display name.
+metric_name
+VARCHAR(80)
+No
+—
+Metric being evaluated.
+operator
+VARCHAR(8)
+No
+> | >= | < | <= | =
+Comparison operator.
+threshold
+DOUBLE PRECISION
+No
+—
+Configured numeric threshold.
+window_seconds
+INTEGER
+No
+60
+Required evaluation window.
+severity
+VARCHAR(16)
+No
+warning | critical | info
+Alert severity.
+create_incident
+BOOLEAN
+No
+TRUE
+Whether a new alert can create an incident.
+cooldown_seconds
+INTEGER
+No
+300
+Deduplication/cooldown window.
+enabled
+BOOLEAN
+No
+TRUE
+Rule state.
+created_at
+TIMESTAMPTZ
+No
+now()
+Creation timestamp.
+updated_at
+TIMESTAMPTZ
+No
+now()
+Last change.
+
+5.7 alerts
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+UUID
+No
+gen_random_uuid()
+Primary key.
+rule_id
+UUID
+No
+FK → alert_rules.id
+Rule that fired.
+service_id
+UUID
+No
+FK → services.id
+Affected service.
+status
+VARCHAR(16)
+No
+active | resolved | suppressed
+Alert lifecycle state.
+severity
+VARCHAR(16)
+No
+Copied from rule
+Snapshot of severity at trigger time.
+current_value
+DOUBLE PRECISION
+Yes
+NULL
+Value that crossed threshold.
+threshold_value
+DOUBLE PRECISION
+Yes
+NULL
+Threshold snapshot.
+triggered_at
+TIMESTAMPTZ
+No
+now()
+First trigger time.
+last_seen_at
+TIMESTAMPTZ
+No
+now()
+Most recent matching observation.
+resolved_at
+TIMESTAMPTZ
+Yes
+NULL
+When condition returned to normal.
+evidence
+JSONB
+Yes
+'{}'
+Small snapshot for investigation.
+
+5.8 incidents
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+UUID
+No
+gen_random_uuid()
+Primary key.
+service_id
+UUID
+No
+FK → services.id
+Affected service.
+alert_id
+UUID
+Yes
+FK → alerts.id
+Originating alert, when available.
+title
+VARCHAR(180)
+No
+—
+Human-readable incident title.
+description
+TEXT
+Yes
+NULL
+Short problem description.
+severity
+VARCHAR(16)
+No
+info | warning | critical
+Incident severity.
+status
+VARCHAR(20)
+No
+'open'
+open | investigating | resolved.
+assignee_user_id
+UUID
+Yes
+FK → users.id
+Optional owner.
+detected_at
+TIMESTAMPTZ
+No
+now()
+When problem was detected.
+opened_at
+TIMESTAMPTZ
+No
+now()
+When incident record was created.
+investigating_at
+TIMESTAMPTZ
+Yes
+NULL
+Start of investigation.
+resolved_at
+TIMESTAMPTZ
+Yes
+NULL
+Resolution timestamp.
+resolution_note
+TEXT
+Yes
+NULL
+Optional human resolution note.
+created_at
+TIMESTAMPTZ
+No
+now()
+Record creation.
+updated_at
+TIMESTAMPTZ
+No
+now()
+Last incident change.
+
+5.9 incident_events
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+BIGSERIAL / BIGINT
+No
+Identity
+Append-only timeline id.
+incident_id
+UUID
+No
+FK → incidents.id
+Incident being described.
+event_type
+VARCHAR(40)
+No
+state_change | note | alert_linked | ai_generated | evidence
+Timeline event type.
+actor_user_id
+UUID
+Yes
+FK → users.id
+Human actor when applicable.
+message
+TEXT
+No
+—
+Human-readable event text.
+metadata
+JSONB
+Yes
+'{}'
+Small event context.
+created_at
+TIMESTAMPTZ
+No
+now()
+Append timestamp.
+
+5.10 ai_analyses
+Column
+Type
+Null
+Default / rule
+Purpose
+id
+UUID
+No
+gen_random_uuid()
+Primary key.
+incident_id
+UUID
+No
+FK → incidents.id
+Incident being analyzed.
+model_name
+VARCHAR(120)
+No
+Configured
+Model identifier.
+prompt_version
+VARCHAR(32)
+No
+'v1'
+Versioned prompt/template id.
+evidence_snapshot
+JSONB
+No
+—
+Evidence sent for this analysis.
+summary
+TEXT
+No
+—
+Concise advisory summary.
+possible_factors
+JSONB
+Yes
+'[]'
+List of possible contributing factors.
+limitations_note
+TEXT
+No
+—
+Must state that output is advisory.
+created_at
+TIMESTAMPTZ
+No
+now()
+Generation timestamp.
+
+Schema disciplineDo not add notification, workspace, deployment, trace, or feature-flag tables merely because they sound enterprise-ready. Add them only when a locked product requirement cannot be implemented cleanly with the existing model.
+
+
+6. Relationships and Lifecycle Rules
+Relationship
+Cardinality
+Rule
+services → telemetry_events
+1 : many
+A service can emit many telemetry events; each event belongs to exactly one service.
+services → metrics
+1 : many
+Each metric sample belongs to one service.
+services → logs
+1 : many
+Each log record belongs to one service.
+services → alert_rules
+1 : many / optional
+A rule may target one service or be global in MVP.
+alert_rules → alerts
+1 : many
+A rule can trigger many alerts over time.
+alerts → incidents
+0..1 : 1
+At most one active incident is created from an alert condition; duplicates are deduplicated.
+incidents → incident_events
+1 : many
+Timeline is append-only for important state changes and actions.
+incidents → ai_analyses
+1 : many
+An incident can have multiple analysis runs; latest successful run is shown by default.
+users → incidents
+1 : many
+A user may be the optional assignee of many incidents.
+
+6.1 Incident state machine
+OPEN  |  | Start investigation  vINVESTIGATING  |  | Resolve  vRESOLVEDAllowed direct path:OPEN -> RESOLVED
+The backend must reject invalid transitions such as RESOLVED → INVESTIGATING in the MVP. Reopening an incident is intentionally outside the first lifecycle contract; a future version can add it as an explicit requirement rather than silently allowing it.
+6.2 Alert deduplication rule
+When a rule condition is already active for the same service and rule, repeated telemetry updates should refresh the existing alert instead of creating a new alert on every request. The cooldown/active-condition logic lives in the alert evaluation service, not inside the HTTP route handler.
+6.3 Incident creation rule
+If an alert is configured with create_incident=true and there is no linked active incident for that alert condition, create one incident with status=open, append an incident_events row describing the creation, and make the new incident visible to the dashboard query.
+7. API Route and Payload Contracts
+7.1 Authentication
+Route
+Method
+Auth
+Request body
+Response
+/api/auth/register
+POST
+Public
+email, name, password
+User profile + session/token.
+/api/auth/login
+POST
+Public
+email, password
+Authenticated user + session/token.
+/api/auth/me
+GET
+User
+—
+Current user profile.
+
+7.2 Services and telemetry
+Route
+Method
+Auth
+Purpose
+/api/services
+GET
+User
+List monitored services.
+/api/services
+POST
+User
+Register a service and return its ingest credential once.
+/api/services/{service_id}
+GET
+User
+Return service configuration and current state.
+/api/services/{service_id}/health
+GET
+User
+Return latest known service health.
+/api/telemetry/events
+POST
+Service key
+Accept monitoring events from the demo app.
+/api/metrics
+GET
+User
+Query metric samples by service/time range.
+/api/logs
+GET
+User
+Search/filter collected logs.
+
+7.3 Alerts and incidents
+Route
+Method
+Auth
+Purpose
+/api/alerts
+GET
+User
+List recent/active alerts.
+/api/alerts/rules
+GET
+User
+List alert rules.
+/api/alerts/rules
+POST
+User
+Create an alert rule.
+/api/alerts/rules/{rule_id}
+PATCH
+User
+Update threshold, severity, or enabled state.
+/api/incidents
+GET
+User
+List incidents with filters.
+/api/incidents/{incident_id}
+GET
+User
+Return incident detail + evidence summary.
+/api/incidents/{incident_id}
+PATCH
+User
+Update status, assignee or resolution note.
+/api/incidents/{incident_id}/events
+GET
+User
+Return append-only incident timeline.
+/api/incidents/{incident_id}/ai-summary
+POST
+User
+Generate advisory AI analysis in Phase 10.
+
+7.4 Error response shape
+{  "error": {    "code": "INVALID_STATUS_TRANSITION",    "message": "Incident cannot move from resolved to investigating.",    "details": {},    "request_id": "5c6f..."  }}
+All API errors should carry a stable machine-readable code and a human-readable message. Do not expose stack traces or database error strings to normal users.
+
+8. Telemetry and Metric Contracts
+8.1 Telemetry ingestion payload
+{  "service_id": "demo-app",  "timestamp": "2026-10-01T10:30:00Z",  "request_id": "req_8b5d...",  "method": "GET",  "endpoint": "/api/orders",  "status_code": 200,  "response_time_ms": 124,  "outcome": "success",  "error_type": null,  "error_message": null,  "metadata": {}}
+Validation rules: service_id must resolve to an active service; timestamp must be ISO-8601; status_code must be between 100 and 599 when present; response_time_ms must be non-negative and bounded to a safe maximum; metadata must remain small and must not contain secrets, credentials or full request/response bodies.
+8.2 Metric names
+Metric
+Unit
+How it is used
+request_count
+requests/window
+Traffic chart and activity summary.
+error_count
+errors/window
+Failure count and evidence.
+error_rate
+ratio / percentage
+High error rate rule and dashboard.
+avg_latency_ms
+milliseconds
+Latency summary and chart.
+p95_latency_ms
+milliseconds
+More useful latency threshold in later iterations.
+service_health
+0/1 or categorical
+Health card and unhealthy-service rule.
+
+8.3 Metric query contract
+Parameter
+Type
+Required
+Example
+service_id
+UUID
+No
+8b6a...
+metric_name
+string
+No
+error_rate
+from
+ISO timestamp
+No
+2026-10-01T08:00:00Z
+to
+ISO timestamp
+No
+2026-10-01T10:00:00Z
+interval
+string
+No
+1m / 5m / 15m
+limit
+integer
+No
+300
+
+9. Alert Evaluation and Incident Creation
+The detection path should be a pure domain flow that can be unit-tested without HTTP: normalize observations → calculate or read metric value → load enabled rules → evaluate threshold → create/refresh alert → optionally create incident → append incident event.
+observation   |   vnormalize   |   vmetric value   |   venabled rule match?   |                no               yes   |                | stop       active alert already?                    |                            yes         no                    |            |              refresh alert   create alert                                 |                            create incident?                              |                                     no         yes                                          |                                   create OPEN incident                                          |                                  append incident_event
+9.1 Rule examples
+Rule
+Example
+Expected result
+High error rate
+error_rate > 0.10 for 60s
+Alert; optionally incident.
+High latency
+avg_latency_ms > 1000 for 60s
+Warning alert; optionally incident.
+Service unhealthy
+service_health = unhealthy
+Critical alert; incident if configured.
+
+10. AI Incident Analysis Schema
+The AI layer is deliberately downstream from the evidence model. The backend prepares a bounded evidence snapshot containing incident metadata, the triggering alert, recent relevant metrics, recent logs where available, and incident timeline events. The model returns an advisory result that is persisted for reproducibility.
+Output field
+Type
+Rule
+summary
+string
+Concise description of what the evidence shows.
+possible_factors
+array[string]
+Possible contributing factors, not confirmed root cause.
+evidence_refs
+array[string]
+IDs or timestamps the answer references.
+limitations_note
+string
+Always states that the output is advisory.
+
+ImportantThe AI assistant must not claim certainty when the evidence is incomplete. The backend UI should visually separate observed evidence from AI-generated interpretation.
+
+11. Authentication and Security Model
+Area
+Requirement
+User passwords
+Hash with Argon2id or bcrypt; never store plaintext.
+Session/token
+Use a secure HTTP-only session or short-lived JWT strategy; refresh design can remain simple in MVP.
+Service ingestion
+Each monitored service receives a random ingest credential once; only its hash is stored.
+Authorization
+All dashboard/data routes require an authenticated user; service ingest routes require the service credential.
+Secrets
+Database URL, JWT/session secrets and AI provider credentials come from environment variables.
+Logging
+Never log passwords, service keys, authorization headers or full request bodies.
+CORS
+Allow only configured frontend origins.
+Validation
+Use Pydantic models for request validation; reject malformed ids and unsupported enum values.
+
+12. Indexes, Constraints and Data Integrity
+Table
+Index / constraint
+Reason
+users
+UNIQUE(email)
+Fast login and no duplicate accounts.
+services
+UNIQUE(identifier)
+Stable service lookup.
+telemetry_events
+(service_id, occurred_at DESC)
+Recent service telemetry queries.
+telemetry_events
+(service_id, outcome, occurred_at DESC)
+Error-rate windows.
+metrics
+(service_id, metric_name, recorded_at DESC)
+Dashboard metric history.
+logs
+(service_id, occurred_at DESC)
+Recent logs by service.
+alerts
+(service_id, status, triggered_at DESC)
+Active/recent alert lists.
+alerts
+(rule_id, service_id, status)
+Deduplication lookup.
+incidents
+(service_id, status, opened_at DESC)
+Active/history filters.
+incident_events
+(incident_id, created_at ASC)
+Timeline rendering.
+ai_analyses
+(incident_id, created_at DESC)
+Latest analysis lookup.
+
+Foreign keys should use restrictive or safe delete behavior. Services, alerts and incidents should not be hard-deleted in normal MVP operations because historical evidence must remain inspectable. If a service is retired, set status=offline or add an explicit archived flag in a later schema revision.
+
+13. Migrations, Seed Data and Retention
+13.1 Migration rules
+Create schema with an initial migration before application-level seed logic is added.
+Never mutate an already-applied migration; add a new migration for every schema change.
+Keep enum values explicit in application validation even if PostgreSQL columns use VARCHAR for easier evolution.
+Add indexes in the same migration as the feature that requires them and document their query purpose.
+13.2 Seed data for local development
+Seed item
+Example
+User
+developer@example.com with a locally configured password
+Service
+demo-app / development / /api/health
+Rules
+High error rate, high latency, unhealthy service
+Demo state
+Healthy service with a few metric samples and no active incident
+
+13.3 Retention
+For the portfolio MVP, keep enough recent telemetry to demonstrate the dashboard and incident workflow without growing unbounded local storage. A simple development default is to retain raw telemetry and logs for 7–14 days, while incidents, alert records and incident_events remain until the user explicitly clears local development data. Exact production retention is outside the MVP scope.
+14. Backend Package Structure
+backend/└── app/    ├── main.py    ├── core/          # config, security, errors    ├── db/            # session, models, migrations    ├── schemas/       # request/response validation    ├── api/           # auth, services, telemetry, metrics, logs, alerts, incidents    ├── services/      # telemetry, detection, incidents, AI    ├── workers/       # Redis-backed background tasks    └── tests/
+This structure separates HTTP routes, validation schemas, persistence models, business logic and background jobs. Do not create a service/repository abstraction for every table unless it makes a real piece of logic easier to test.
+15. Implementation Phases and Acceptance Checklist
+Phase
+Backend schema work
+Definition of done
+1. Demo app
+No PulseOps DB dependency yet.
+Demo app can produce healthy, normal, slow and error behavior.
+2. PulseOps backend
+users, services, auth endpoints.
+Authenticated API starts and service registration works.
+3. Telemetry
+telemetry_events + ingestion contract.
+Demo app can send request telemetry to PulseOps.
+4. PostgreSQL
+metrics, logs, alerts, incidents, incident_events.
+Data survives restart and can be queried.
+5. Dashboard
+Stable list/detail APIs.
+Overview/services/incidents screens consume real backend data.
+6. Alerts/incidents
+alert_rules, alerts, lifecycle rules.
+Threshold produces an alert and configured alert creates an incident.
+7. Redis worker
+Background task state is not persisted as product data.
+At least one non-blocking job and one controlled retry are demonstrable.
+8. Observability
+OpenTelemetry/Prometheus integration.
+Telemetry foundation produces usable traces/metrics for the demo system.
+9. Docker
+Environment variables and startup order.
+Local stack starts predictably through Docker Compose.
+10. AI assistant
+ai_analyses + evidence snapshot.
+Incident detail can generate and persist an advisory summary.
+11. QA/docs
+Schema reviewed against code.
+Tests, migrations and documentation agree with actual behavior.
+
+15.1 Backend acceptance checklist
+A user can register and log in without plaintext password storage.
+A service can be registered and receives a one-time ingest credential.
+The demo application can send a valid telemetry event.
+Malformed telemetry is rejected with a stable validation error.
+Metrics and logs can be queried by service and time range.
+Alert rules evaluate explicit thresholds and deduplicate active conditions.
+A qualifying alert can create exactly one active incident for the condition.
+Incident lifecycle transitions are validated by the backend.
+Incident events preserve an append-only investigation timeline.
+The AI summary can be generated without changing incident state automatically.
+All protected user routes reject unauthenticated access.
+Schema migrations reproduce the database from an empty PostgreSQL instance.
+
+16. Example Payloads and Reference SQL
+16.1 Create a service
+POST /api/servicesAuthorization: Bearer <user-token>{  "identifier": "demo-app",  "name": "Demo Application",  "environment": "development",  "base_url": "http://demo-app:8000",  "health_path": "/api/health"}
+16.2 Create an alert rule
+POST /api/alerts/rules{  "service_id": "...",  "name": "High error rate",  "metric_name": "error_rate",  "operator": ">",  "threshold": 0.10,  "window_seconds": 60,  "severity": "critical",  "create_incident": true,  "cooldown_seconds": 300,  "enabled": true}
+16.3 Update an incident
+PATCH /api/incidents/{incident_id}{  "status": "investigating",  "assignee_user_id": "..."}
+16.4 Reference SQL shape
+CREATE TABLE services (  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),  identifier VARCHAR(80) NOT NULL UNIQUE,  name VARCHAR(120) NOT NULL,  environment VARCHAR(32) NOT NULL DEFAULT 'development',  base_url TEXT,  health_path VARCHAR(200) NOT NULL DEFAULT '/api/health',  status VARCHAR(32) NOT NULL DEFAULT 'unknown',  last_seen_at TIMESTAMPTZ,  ingest_key_hash TEXT,  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),  updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+16.5 Traceability to the product flow
+Product step
+Backend records involved
+Read / write behavior
+Healthy service visible
+services + metrics
+Read latest service status and recent metric samples.
+Slow request occurs
+telemetry_events + metrics
+Write event; aggregate latency metric.
+Threshold crossed
+alert_rules + alerts
+Read rule; create or refresh alert.
+Incident opens
+incidents + incident_events
+Create incident + append creation event.
+Investigation
+metrics + logs + incident_events
+Read evidence and append notes/state changes.
+Resolution
+incidents + incident_events
+Update status/resolved_at; append resolution event.
+AI summary
+ai_analyses + evidence sources
+Create analysis snapshot and persist advisory output.
+
+17. Final Backend Contract
+Source of truthThe backend is correct when application behavior can be followed all the way through the schema: telemetry event arrives → metrics/evidence are stored → rule evaluates → alert exists → incident is created and progresses through a validated lifecycle → the dashboard can read the current state → the AI layer can summarize the collected evidence without inventing operational facts.
+
+Any future schema change should answer three questions before implementation: What user/product requirement requires it? Why can the current schema not support it cleanly? Which migration, API contract, test and documentation changes are required at the same time?

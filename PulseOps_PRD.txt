@@ -1,0 +1,265 @@
+
+PULSEOPS
+Product Requirements Document
+MVP: Application Monitoring, Alerts, Incidents and AI-assisted Investigation
+Version 1.0  |  October 2026
+Project type: Portfolio / Learning Project
+
+1. Executive Summary
+PulseOps is a small incident-monitoring and observability platform designed for applications that we control. It solves a simple operational problem: when an application becomes slow or starts returning errors, developers need a quick way to see what is happening, identify the affected service, and track the incident. The MVP will monitor a demo FastAPI application, collect basic request and service information, detect simple problems using rule-based checks, show the results on a web dashboard, create incidents, and provide an AI-assisted incident summary near the end of the project.
+The project is intentionally scoped as a learning and portfolio application. It is not positioned as a production replacement for enterprise products such as commercial APM or incident-management platforms. Advanced infrastructure such as Kubernetes, Kafka, autonomous remediation, and large custom ML systems are explicitly out of scope for the initial version.
+2. Problem Statement
+A modern application can have several moving parts: APIs, background workers, databases, and other services. When one part fails or becomes slow, the user may only see that something is wrong. Without monitoring information, a developer has to inspect logs and test the application manually to understand what happened.
+PulseOps will provide a simple control-room view for the application. Instead of only showing that the application is down, it will collect basic evidence such as request counts, response time, error responses, and service health. When a defined threshold is crossed, PulseOps will create an alert and incident that the developer can investigate and later resolve.
+3. Product Goals
+Detect basic application problems such as high error rate, slow responses, or unhealthy services.
+Centralize the monitoring information needed to understand what is happening.
+Give developers a dashboard showing service health, requests, errors, latency, and active incidents.
+Turn detected problems into trackable incidents with a basic lifecycle: detected, open, investigating, resolved.
+Introduce background processing and retry behavior in a controlled, understandable way.
+Add an AI assistant that summarizes an incident using the evidence already collected by PulseOps.
+Package the system so it can be run consistently with Docker and documented clearly on GitHub.
+4. Non-Goals / Out of Scope
+Full enterprise APM replacement.
+Monitoring arbitrary third-party applications without integration or instrumentation.
+Automatic bug fixing or autonomous remediation.
+Kubernetes, service mesh, Kafka, multi-cloud infrastructure, or large-scale distributed deployment in the MVP.
+Custom machine-learning models for anomaly detection.
+Guaranteeing production-grade scale, uptime, security, or compliance.
+A large number of microservices; the initial demo system should remain small enough to understand and operate.
+5. Target Users
+Primary user: a developer or small engineering team responsible for an application and needing a simple view of application health and incidents.
+Secondary user: a student or learner who wants to understand backend monitoring, observability, incident management, background processing, containerization, and AI-assisted operational workflows through one end-to-end system.
+6. Core User Story
+As a developer, I want PulseOps to monitor my application and show me when it becomes unhealthy, slow, or error-prone, so that I can quickly investigate the issue and track its resolution.
+7. Product Scope
+7.1 Demo Application
+The project starts with a small FastAPI application that PulseOps owns and can safely test. The demo application provides normal endpoints plus controlled failure scenarios.
+Endpoint
+Behavior
+Purpose
+GET /
+Basic welcome response
+Normal request
+GET /api/health
+Returns service health
+Health check
+GET /api/users
+Returns sample users
+Normal request
+GET /api/orders
+Returns sample orders
+Normal request
+GET /api/slow?delay=3
+Delays the response by a safe configurable amount
+Slow-response simulation
+GET /api/error
+Returns HTTP 500
+Failure simulation
+7.2 Monitoring and Telemetry
+Capture request count and request outcome.
+Measure response time / latency.
+Record errors and relevant service information.
+Track service health.
+Use OpenTelemetry for application telemetry and Prometheus for metrics collection in the later monitoring phase.
+7.3 Detection and Alerting
+Support simple rule-based thresholds in the MVP.
+Example: error rate above a configured threshold creates an alert.
+Example: response time above a configured threshold creates an alert.
+Avoid black-box anomaly detection in the initial release.
+7.4 Incident Management
+Create an incident from a detected alert.
+Show incident title, service, severity, status, timestamps, and evidence.
+Support a simple status lifecycle: Open → Investigating → Resolved.
+Keep an incident timeline / audit history.
+7.5 Dashboard
+Service health overview.
+Request count and error count.
+Response-time view.
+Active incidents.
+Recent alert activity.
+Basic incident details and evidence.
+7.6 AI Incident Assistant
+The AI feature is intentionally added after the core monitoring workflow is working. It will read the incident context that PulseOps has already collected, such as recent logs, metrics, affected service, and recent events, and produce a concise summary with possible contributing factors. The AI assistant is advisory; it does not automatically change application code or infrastructure.
+8. High-Level Architecture
+The MVP is organized as a small set of understandable components rather than a large microservice architecture.
+Component
+Responsibility
+Demo Application
+Generates normal, slow, and failed requests.
+Telemetry / Monitoring Layer
+Collects request, latency, error, and service information.
+PulseOps Backend
+Receives and processes monitoring data, evaluates rules, and manages incidents.
+PostgreSQL
+Stores application, telemetry metadata, alerts, incidents, and audit information.
+Redis / Worker
+Handles small background jobs and controlled retry behavior.
+React Dashboard
+Displays system health, metrics, alerts, and incidents.
+Prometheus / OpenTelemetry
+Provide the later-stage telemetry and metrics foundation.
+AI Assistant
+Summarizes incident evidence after the core system is functioning.
+Logical flow: Demo Application → Telemetry → PulseOps Backend → Database / Processing → Dashboard → Alerts / Incidents → AI Incident Assistant.
+9. Functional Requirements
+ID
+Requirement
+Description
+FR-01
+Demo application
+The system shall provide a controllable FastAPI application with healthy, normal, slow, and error endpoints.
+FR-02
+Telemetry ingestion
+The system shall receive monitoring information from the demo application.
+FR-03
+Metrics
+The system shall record request count, response time, and error outcomes.
+FR-04
+Service health
+The system shall show whether a monitored service is healthy or unhealthy based on configured checks.
+FR-05
+Alert rules
+The system shall evaluate simple threshold rules and create alerts when conditions are met.
+FR-06
+Incident creation
+The system shall create an incident from a qualifying alert.
+FR-07
+Incident lifecycle
+Users shall be able to view and update the status of an incident.
+FR-08
+Incident evidence
+An incident shall display relevant monitoring evidence available to PulseOps.
+FR-09
+Dashboard
+The dashboard shall show current service health, metrics, alerts, and incidents.
+FR-10
+Background processing
+The system shall support small asynchronous jobs with retry behavior in the later MVP phase.
+FR-11
+AI summary
+The system shall generate an incident summary from collected evidence after core functionality is complete.
+FR-12
+Audit history
+Important incident actions shall be recorded in a basic activity history.
+10. Non-Functional Requirements
+Understandability: core logic should be simple enough for a second-year developer to explain.
+Reliability: the system should fail safely and preserve useful monitoring information where practical.
+Maintainability: components, configuration, and folders should have clear names and responsibilities.
+Security basics: secrets must not be hard-coded; authentication and authorization will be implemented for PulseOps user access.
+Testability: major backend behavior should have automated tests before the final documentation phase.
+Portability: the application should be runnable locally through documented setup steps and Docker in the containerization phase.
+Performance: the MVP should provide usable response times for a small development/portfolio workload; no enterprise-scale performance guarantee is made.
+11. Initial Data Model
+Entity
+Purpose
+users
+PulseOps dashboard users and authentication metadata.
+services
+Monitored application/service definitions and health configuration.
+metrics
+Basic time-stamped monitoring measurements such as request count and latency.
+alerts
+Detected threshold violations and their current state.
+incidents
+Trackable problems created from alerts.
+incident_events
+Timeline entries / audit history related to incidents.
+The schema is intentionally minimal. Additional tables may be introduced only when a concrete product requirement needs them.
+12. Development Roadmap
+Phase
+Name
+Scope
+Phase 1
+Demo Application
+Build and verify the FastAPI application with health, normal, slow, and error scenarios.
+Phase 2
+PulseOps Backend
+Create the initial backend API and project structure.
+Phase 3
+Monitoring / Data Collection
+Connect the demo application to PulseOps and collect basic monitoring data.
+Phase 4
+PostgreSQL
+Persist services, metrics, alerts, incidents, and history.
+Phase 5
+React Dashboard
+Build the web dashboard for services, metrics, alerts, and incidents.
+Phase 6
+Alerts + Incidents
+Add rule-based detection and incident lifecycle management.
+Phase 7
+Redis + Background Processing
+Add controlled asynchronous processing and retries.
+Phase 8
+OpenTelemetry + Prometheus
+Add richer telemetry and metrics collection.
+Phase 9
+Docker
+Containerize the application components and make local startup reproducible.
+Phase 10
+AI Incident Assistant
+Add evidence-based incident summarization.
+Phase 11
+Testing + Documentation + Deployment
+Harden the MVP, document architecture and usage, and deploy a demonstrable version.
+13. MVP Acceptance Criteria
+The demo application can be started locally and its normal, slow, and error scenarios can be reproduced.
+PulseOps receives monitoring information from the demo application without manual data entry.
+The dashboard clearly shows service health, request activity, errors, and response time.
+A configured problem condition can automatically create an alert.
+A qualifying alert can create an incident that can be viewed and resolved.
+Incident details include enough monitoring evidence to support a basic manual investigation.
+Background processing and retry behavior are demonstrable with at least one controlled failure scenario.
+The AI assistant can summarize a real incident using collected evidence and clearly separate evidence from possible explanations.
+The system can be run using documented local setup instructions and Docker in the final phase.
+The repository contains tests, architecture documentation, and a clear explanation of design decisions and limitations.
+14. Risks and Mitigations
+Risk
+Impact
+Mitigation
+Scope creep
+The project can become too large.
+Keep the phase plan locked and postpone advanced infrastructure.
+AI-generated code dependency
+The author may not understand generated code.
+Require simple implementations, review each phase, and document the purpose of every major component.
+False alerts
+Simple rules may create noisy alerts.
+Use a small number of actionable thresholds and allow basic configuration.
+Monitoring overhead
+Instrumentation can add complexity.
+Instrument only the demo application and measure what is needed for the MVP.
+Deployment complexity
+Cloud or infrastructure setup can consume project time.
+Complete the local Docker workflow first and treat deployment as a later milestone.
+15. Success Measures for the Portfolio
+This project should be judged primarily by whether the builder can explain and demonstrate the engineering decisions, not by the number of technologies listed on a resume.
+A new user can run the project from the README without undocumented manual steps.
+A reviewer can trigger a slow or failing demo endpoint and see a corresponding PulseOps signal.
+The builder can explain the data flow from application request to metric/alert to incident.
+The builder can explain why Redis, PostgreSQL, OpenTelemetry, Prometheus, Docker, and the AI layer were used and what each one does.
+The repository clearly states what is implemented, what is simulated, and what remains outside the MVP.
+16. Simple Glossary
+Term
+Meaning
+Telemetry
+Information produced by an application about what it is doing, such as logs, metrics, and traces.
+Metric
+A numeric measurement recorded over time, such as response time or request count.
+Alert
+A signal created when a monitoring rule detects a condition that needs attention.
+Incident
+A trackable problem created from an alert or detected issue.
+Observability
+The ability to understand the internal state of a system using information it produces.
+Retry
+Trying a failed background operation again according to a defined policy.
+Idempotency
+Handling the same request or event more than once without creating an unintended duplicate effect.
+OpenTelemetry
+The telemetry framework used in the project to collect application observability data.
+Prometheus
+The metrics system used later in the project to collect and query time-series measurements.
+17. Final Product Definition
+PulseOps MVP is a small, explainable observability and incident-management system for an application that we control. Its core value is the workflow: application behavior produces telemetry, PulseOps detects a defined problem, an alert becomes an incident, the developer investigates using the evidence shown by the dashboard, and the AI assistant provides a concise summary only after the evidence exists. The project intentionally avoids pretending to be a full enterprise monitoring platform and instead focuses on demonstrating real backend, monitoring, operational, and software-engineering concepts in a manageable scope.

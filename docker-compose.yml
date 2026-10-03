@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: nexpulse-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pulseops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulseops_dev_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-pulseops_db}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pulseops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Task Queue Store
+  redis:
+    image: redis:7-alpine
+    container_name: nexpulse-redis
+    restart: always
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NexPulse FastAPI Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexpulse-backend
+    command: ["sh", "-c", "alembic upgrade head && python -m app.db.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pulseops}:${POSTGRES_PASSWORD:-pulseops_dev_pass}@postgres:5432/${POSTGRES_DB:-pulseops_db}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-use-a-secure-random-key-32bytes}
+      - AI_ENABLED=${AI_ENABLED:-true}
+      - AI_PROVIDER=${AI_PROVIDER:-groq}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-llama-3.3-70b-versatile}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # NexPulse Background Task Worker Process
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexpulse-worker
+    command: python -m app.workers.worker
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-pulseops}:${POSTGRES_PASSWORD:-pulseops_dev_pass}@postgres:5432/${POSTGRES_DB:-pulseops_db}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-use-a-secure-random-key-32bytes}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Monitored Demo Application
+  demo-app:
+    build:
+      context: ./demo-app
+      dockerfile: Dockerfile
+    container_name: nexpulse-demo-app
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      - PULSEOPS_INGEST_URL=http://backend:8000/api/v1/telemetry/events
+      - PULSEOPS_INGEST_KEY=pik_dev_demo_app_secret_key_12345
+      - ENABLE_TELEMETRY=true
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # NexPulse React Frontend SPA
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexpulse-frontend
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+
