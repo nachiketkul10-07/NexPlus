@@ -3,7 +3,12 @@
   "services": {
     "web": {
       "root": "frontend/",
-      "framework": "vite"
+      "framework": "vite",
+      "routes": [
+        { "src": "/assets/(.*)", "dest": "/assets/$1" },
+        { "src": "/favicon.svg", "dest": "/favicon.svg" },
+        { "src": "/(.*)", "dest": "/index.html" }
+      ]
     },
     "api": {
       "root": "backend/",
@@ -17,6 +22,10 @@
     }
   },
   "rewrites": [
+    {
+      "source": "/health",
+      "destination": { "service": "api", "path": "/health" }
+    },
     {
       "source": "/api/(.*)",
       "destination": { "service": "api" }
