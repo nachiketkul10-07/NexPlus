@@ -4,13 +4,13 @@ Provides registration and listing of monitored applications.
 """
 from typing import List, Annotated
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.api.deps import require_authenticated_user, get_service_repository
+from app.api.deps import require_authenticated_user, require_admin, get_service_repository
 from app.db.repositories.service_repository import PostgresServiceRepository
 from app.schemas.service import (
     ServiceCreate, ServiceCreatedResponse, ServiceResponse,
-    GitHubRepositoryPreview, GitHubRepositoryPreviewRequest,
+    GitHubRepositoryPreview, GitHubRepositoryPreviewRequest, ServiceIngestKeyResponse,
 )
 from app.schemas.user import UserResponse
 from app.core.rate_limit import rate_limiter
@@ -42,6 +42,7 @@ async def preview_github_repository(
 @router.post("", response_model=ServiceCreatedResponse, status_code=status.HTTP_201_CREATED)
 async def register_service(
     service_in: ServiceCreate,
+    response: Response,
     service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ):
@@ -57,6 +58,8 @@ async def register_service(
         )
 
     service, raw_ingest_key = await service_repo.create_service(service_in)
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
 
     return ServiceCreatedResponse(
         id=service.id,
@@ -98,3 +101,32 @@ async def get_service_detail(
             detail=f"Service with ID '{service_id}' not found."
         )
     return service
+
+
+@router.post("/{service_id}/rotate-ingest-key", response_model=ServiceIngestKeyResponse)
+async def rotate_service_ingest_key(
+    service_id: UUID,
+    response: Response,
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
+    current_user: Annotated[UserResponse, Depends(require_admin)],
+):
+    """Immediately revoke the prior key and return the replacement once (admin only)."""
+    service = await service_repo.get_by_id(service_id)
+    if service is None:
+        raise HTTPException(status_code=404, detail="Service not found.")
+    raw_key = await service_repo.rotate_ingest_key(service_id)
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    return ServiceIngestKeyResponse(service_id=service.id, identifier=service.identifier, ingest_key=raw_key)
+
+
+@router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_service(
+    service_id: UUID,
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
+    current_user: Annotated[UserResponse, Depends(require_admin)],
+):
+    """Permanently remove a service and its telemetry, alerts, and incidents (admin only)."""
+    if not await service_repo.delete_service(service_id):
+        raise HTTPException(status_code=404, detail="Service not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

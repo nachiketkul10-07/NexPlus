@@ -17,7 +17,7 @@ export const NexPulseLogo: React.FC<NexPulseLogoProps> = ({
     <svg
       viewBox="0 0 100 100"
       className={cn(
-        variant === 'sidebar' ? 'w-8 h-8' : variant === 'hero' ? 'w-20 h-20 sm:w-28 sm:w-28' : 'w-10 h-10',
+        variant === 'sidebar' ? 'w-8 h-8' : variant === 'hero' ? 'w-20 h-20 sm:w-28 sm:h-28' : 'w-10 h-10',
         'flex-shrink-0 drop-shadow-[0_0_12px_rgba(229,0,57,0.4)]'
       )}
       fill="none"

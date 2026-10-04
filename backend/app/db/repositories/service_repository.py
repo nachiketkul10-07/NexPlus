@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import generate_ingest_key, hash_ingest_key
 from app.models.service import Service
+from app.models.alert import Alert, AlertRule
+from app.models.incident import Incident
 from app.schemas.service import ServiceCreate
 
 
@@ -60,6 +62,31 @@ class PostgresServiceRepository:
         await self.session.flush()
         await self.session.refresh(service)
         return service, raw_key
+
+    async def rotate_ingest_key(self, service_id: UUID) -> Optional[str]:
+        """Replace a service credential and return its raw value once."""
+        service = await self.get_by_id(service_id)
+        if service is None:
+            return None
+        raw_key = generate_ingest_key()
+        service.ingest_key_hash = hash_ingest_key(raw_key)
+        await self.session.flush()
+        return raw_key
+
+    async def delete_service(self, service_id: UUID) -> bool:
+        """Delete a service and its service-scoped operational history."""
+        service = await self.get_by_id(service_id)
+        if service is None:
+            return False
+
+        # Remove dependents explicitly because these foreign keys use RESTRICT.
+        for model in (Incident, Alert, AlertRule):
+            result = await self.session.execute(select(model).where(model.service_id == service_id))
+            for record in result.scalars().all():
+                await self.session.delete(record)
+        await self.session.delete(service)
+        await self.session.flush()
+        return True
 
     async def update_last_seen(self, service_id: UUID, ts: Optional[datetime] = None) -> None:
         """Updates service last_seen_at timestamp to signify activity."""

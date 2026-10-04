@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/layout/PageHeader';
-import { getServicesApi, createServiceApi, previewGitHubRepositoryApi } from '../services/services';
+import { getServicesApi, createServiceApi, previewGitHubRepositoryApi, deleteServiceApi } from '../services/services';
+import { useAuth } from '../app/AuthContext';
 import { GitHubRepositoryPreview, Service } from '../types';
 import { StatusIndicator } from '../components/ui/StatusIndicator';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -15,6 +16,8 @@ import { formatDate, safeExtractErrorMessage } from '../lib/utils';
 
 export const Services: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role.toLowerCase() === 'admin';
   const [services, setServices] = useState<Service[]>([]);
   const [search, setSearch] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -35,6 +38,9 @@ export const Services: React.FC = () => {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [createdService, setCreatedService] = useState<Service | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+  const [serviceToDelete, setServiceToDelete] = useState<Service | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchServices = useCallback(async () => {
     setIsLoading(true);
@@ -102,6 +108,27 @@ export const Services: React.FC = () => {
   const openManual = () => { setFlow('manual'); setIsModalOpen(true); };
   const openGitHub = () => { setFlow('github'); setIsModalOpen(true); };
   const filtered = services.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
+  const confirmDelete = async () => {
+    if (!serviceToDelete) return;
+    setIsDeleting(true); setDeleteError(null);
+    try { await deleteServiceApi(serviceToDelete.id); setServiceToDelete(null); await fetchServices(); }
+    catch (err) { setDeleteError(safeExtractErrorMessage(err)); }
+    finally { setIsDeleting(false); }
+  };
+  const powershellSignal = (serviceIdentifier: string) => {
+    const safeIdentifier = serviceIdentifier.replace(/`/g, '``').replace(/"/g, '`"');
+    return `$key = Read-Host "Paste the ingestion key for ${safeIdentifier}"
+$body = @{
+  service_id = "${safeIdentifier}"
+  method = "GET"
+  endpoint = "/health"
+  status_code = 200
+  duration_ms = 12
+  outcome = "success"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/events" -Headers @{ "X-Ingest-Key" = $key } -ContentType "application/json" -Body $body`;
+  };
 
   return (
     <div className="space-y-6">
@@ -114,7 +141,7 @@ export const Services: React.FC = () => {
         <EmptyState title="No Monitored Services" description="Connect a GitHub repository or register a service manually to start receiving telemetry." actionLabel="Connect GitHub" onAction={openGitHub} />
       ) : (
         <Table>
-          <TableHeader><TableRow><TableHead>Service</TableHead><TableHead>Identifier</TableHead><TableHead>Source</TableHead><TableHead>Environment</TableHead><TableHead>Status</TableHead><TableHead>Last Seen</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Service</TableHead><TableHead>Identifier</TableHead><TableHead>Source</TableHead><TableHead>Environment</TableHead><TableHead>Status</TableHead><TableHead>Last Seen</TableHead>{isAdmin && <TableHead>Actions</TableHead>}</TableRow></TableHeader>
           <TableBody>
             {filtered.map((s) => (
               <TableRow key={s.id}>
@@ -124,6 +151,7 @@ export const Services: React.FC = () => {
                 <TableCell>{s.environment}</TableCell>
                 <TableCell><StatusIndicator status={s.status} /></TableCell>
                 <TableCell>{formatDate(s.last_seen_at)}</TableCell>
+                {isAdmin && <TableCell><Button variant="danger" size="sm" onClick={() => { setDeleteError(null); setServiceToDelete(s); }}>Delete</Button></TableCell>}
               </TableRow>
             ))}
           </TableBody>
@@ -136,7 +164,7 @@ export const Services: React.FC = () => {
             {createdService?.repository_url && <a href={createdService.repository_url} target="_blank" rel="noreferrer" className="text-sm text-[#F7F7F7] underline decoration-[#E50039] underline-offset-4">{createdService.repository_url}</a>}
             <div className="flex gap-2"><div className="min-w-0 flex-1 break-all border border-[#333333] bg-[#262626] p-3 font-mono text-xs text-[#E50039]">{createdKey}</div><Button variant="secondary" size="sm" onClick={() => { void navigator.clipboard.writeText(createdKey).then(() => setCopied(true)).catch(() => setFormError('Clipboard access failed. Select and copy the key manually.')); }}>{copied ? 'Copied' : 'Copy key'}</Button></div>
             <p className="text-xs text-[#A7A7A7]">Store the key as a secret in your app’s hosting platform or GitHub Actions. Never commit it to the repository or expose it to browser code.</p>
-            <div><p className="mb-2 text-xs font-mono uppercase text-[#A7A7A7]">Send a first signal</p><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all border border-[#333333] bg-[#191919] p-3 text-xs text-[#F7F7F7]">{`curl -X POST '${window.location.origin}/api/v1/telemetry/events' \\\n  -H 'Content-Type: application/json' \\\n  -H 'X-Ingest-Key: ${createdKey}' \\\n  -d '{"service_id":"${createdService?.identifier}","method":"GET","endpoint":"/health","status_code":200,"duration_ms":12,"outcome":"success"}'`}</pre></div>
+            <div><p className="mb-2 text-xs font-mono uppercase text-[#A7A7A7]">PowerShell · send a first signal</p><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all border border-[#333333] bg-[#191919] p-3 text-xs text-[#F7F7F7]">{powershellSignal(createdService?.identifier || '')}</pre><Button variant="secondary" size="sm" onClick={() => { void navigator.clipboard.writeText(powershellSignal(createdService?.identifier || '')).then(() => setCopied(true)).catch(() => setFormError('Clipboard access failed. Select and copy the command manually.')); }}>Copy PowerShell command</Button></div>
             <p className="text-xs text-[#A7A7A7]">Fetching a repository does not run or instrument its code. Add telemetry reporting to the server-side runtime and send signals to this endpoint to populate NexPulse.</p>
             <Button className="w-full" onClick={closeModal}>Done</Button>
           </div>
@@ -186,6 +214,14 @@ export const Services: React.FC = () => {
             <Button type="submit" className="w-full" isLoading={isSubmitting}>Register Service</Button>
           </form>
         )}
+      </Modal>
+      <Modal isOpen={!!serviceToDelete} onClose={() => { if (!isDeleting) { setServiceToDelete(null); setDeleteError(null); } }} title="Delete monitored service" className="max-w-lg">
+        <div className="space-y-4">
+          <p className="text-sm text-[#F7F7F7]">Permanently delete <strong>{serviceToDelete?.name}</strong> ({serviceToDelete?.identifier})?</p>
+          <p className="text-sm text-[#EF4444]">This also deletes its telemetry, metrics, logs, alert rules, alert history, incidents, and ingestion key. This cannot be undone.</p>
+          {deleteError && <p role="alert" className="text-sm text-[#EF4444]">{deleteError}</p>}
+          <div className="flex justify-end gap-2"><Button variant="secondary" disabled={isDeleting} onClick={() => setServiceToDelete(null)}>Cancel</Button><Button variant="danger" isLoading={isDeleting} onClick={() => void confirmDelete()}>Delete service and data</Button></div>
+        </div>
       </Modal>
     </div>
   );

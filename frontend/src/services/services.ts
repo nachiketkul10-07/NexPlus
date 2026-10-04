@@ -29,3 +29,11 @@ export async function previewGitHubRepositoryApi(
     body: JSON.stringify({ repository_url: repositoryUrl, access_token: accessToken || undefined }),
   });
 }
+
+export async function rotateServiceIngestKeyApi(serviceId: string): Promise<{ service_id: string; identifier: string; ingest_key: string }> {
+  return apiFetch(`/services/${serviceId}/rotate-ingest-key`, { method: 'POST' });
+}
+
+export async function deleteServiceApi(serviceId: string): Promise<void> {
+  await apiFetch(`/services/${serviceId}`, { method: 'DELETE' });
+}

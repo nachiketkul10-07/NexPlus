@@ -2,6 +2,7 @@
 PulseOps Backend Core Configuration
 Handles environment-based application settings with Pydantic Settings.
 """
+import os
 from typing import List
 from urllib.parse import urlparse
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -84,7 +85,9 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT.strip().lower() in {"prod", "production"}
+        # Vercel is always treated as production for security decisions, even
+        # if someone accidentally adds ENVIRONMENT=development to its settings.
+        return bool(os.getenv("VERCEL")) or self.ENVIRONMENT.strip().lower() in {"prod", "production"}
 
     def validate_production_settings(self) -> None:
         """Fail closed when a production process still has development-only settings."""
@@ -108,8 +111,8 @@ class Settings(BaseSettings):
         elif any(urlparse(origin).hostname not in self.trusted_hosts_list for origin in self.cors_origins_list):
             problems.append("Every ALLOWED_ORIGINS hostname must also appear in TRUSTED_HOSTS")
         database_url = urlparse(self.DATABASE_URL)
-        if database_url.scheme not in {"postgresql", "postgresql+asyncpg"} or not database_url.hostname or database_url.hostname in {"localhost", "127.0.0.1"} or not database_url.password or len(database_url.password) < 24 or "URL_ENCODED_PASSWORD" in database_url.password:
-            problems.append("DATABASE_URL must point to private PostgreSQL with a strong password")
+        if database_url.scheme != "postgresql+asyncpg" or not database_url.hostname or database_url.hostname in {"localhost", "127.0.0.1"} or not database_url.password or len(database_url.password) < 24 or "URL_ENCODED_PASSWORD" in database_url.password:
+            problems.append("DATABASE_URL must use asyncpg with private PostgreSQL and a strong password")
         redis_url = urlparse(self.REDIS_URL)
         if redis_url.scheme not in {"redis", "rediss"} or not redis_url.hostname or redis_url.hostname in {"localhost", "127.0.0.1"} or not redis_url.password or len(redis_url.password) < 24 or "URL_ENCODED" in redis_url.password:
             problems.append("REDIS_URL must use a password-protected Redis service")
@@ -117,6 +120,8 @@ class Settings(BaseSettings):
             problems.append("ALLOW_PUBLIC_REGISTRATION must be false until verified invitations are implemented")
         if self.AI_ENABLED and not self.AI_BASE_URL.startswith("https://"):
             problems.append("AI_BASE_URL must use HTTPS when AI requests are enabled")
+        if self.AI_ENABLED and not self.AI_API_KEY.strip():
+            problems.append("AI_API_KEY must be configured when AI is enabled in production")
         if problems:
             raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
 

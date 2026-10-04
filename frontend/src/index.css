@@ -103,6 +103,7 @@ button, a, input, select, textarea { outline-offset: 3px; }
 @keyframes sidebar-item-in {from {opacity:0;transform:translateX(-8px);}to {opacity:1;transform:translateX(0);}}
 @media (max-width: 900px) {
   .signal-stage {inset:0 -10% 0 25%;opacity:.78;}.landing-hero::before {inset:0; background:linear-gradient(90deg,rgba(25,25,25,.91) 0%,rgba(25,25,25,.76) 48%,rgba(25,25,25,.24) 100%);}
+  .signal-readout {display:none;}
   .readout-a {left:auto;right:8%;top:17%;}.readout-b {left:auto;right:7%;top:42%;}.readout-c {left:auto;right:8%;top:72%;}
   .flow-step {padding-right:12px;}.flow-step:not(:first-child){padding-left:12px;}
 }

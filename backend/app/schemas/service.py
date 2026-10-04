@@ -66,3 +66,9 @@ class ServiceResponse(ServiceBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ServiceIngestKeyResponse(BaseModel):
+    service_id: UUID
+    identifier: str
+    ingest_key: str = Field(..., description="Replacement key; shown only once.")

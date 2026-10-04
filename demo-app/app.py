@@ -36,8 +36,16 @@ app.add_middleware(
 )
 
 # Telemetry client settings
-INGEST_URL = os.getenv("PULSEOPS_INGEST_URL", "http://localhost:8000/api/v1/telemetry/events")
-INGEST_KEY = os.getenv("PULSEOPS_INGEST_KEY", "pik_dev_demo_app_secret_key_12345")
+_vercel_host = os.getenv("VERCEL_URL")
+_default_ingest_url = (
+    f"https://{_vercel_host}/api/v1/telemetry/events"
+    if _vercel_host
+    else "http://localhost:8000/api/v1/telemetry/events"
+)
+INGEST_URL = os.getenv("PULSEOPS_INGEST_URL", _default_ingest_url)
+# The checked-in fallback only supports the explicitly local demo seed. Vercel
+# deployments must provide the per-service key through encrypted environment config.
+INGEST_KEY = os.getenv("PULSEOPS_INGEST_KEY") or (None if os.getenv("VERCEL") else "pik_dev_demo_app_secret_key_12345")
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "true").lower() in ("true", "1", "yes")
 
 # OpenTelemetry Instrumentation for Demo Application
@@ -62,7 +70,7 @@ except Exception as _otel_exc:
 
 async def _post_telemetry(payload: Dict[str, Any]) -> None:
     """Asynchronously dispatches HTTP telemetry observation to PulseOps ingestion engine."""
-    if not ENABLE_TELEMETRY:
+    if not ENABLE_TELEMETRY or not INGEST_KEY:
         return
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
@@ -112,7 +120,9 @@ async def telemetry_middleware(request: Request, call_next):
                 "error_message": error_msg or (f"HTTP {status_code}" if status_code >= 400 else None),
                 "metadata": {"source": "demo-app-instrumentation"}
             }
-            asyncio.create_task(_post_telemetry(payload))
+            # Await the outbound request so serverless runtimes don't freeze the
+            # function before telemetry has been delivered.
+            await _post_telemetry(payload)
 
 
 # Global Exception Handler to prevent stack trace leaks

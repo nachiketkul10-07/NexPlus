@@ -6,7 +6,8 @@ export interface DemoScenarioResult {
   slow_requests: number;
 }
 
-export const DEMO_APP_URL = (import.meta.env.VITE_DEMO_APP_URL || 'http://127.0.0.1:8001').replace(/\/+$/, '');
+const defaultDemoUrl = import.meta.env.PROD ? '/demo' : 'http://127.0.0.1:8001';
+export const DEMO_APP_URL = (import.meta.env.VITE_DEMO_APP_URL || defaultDemoUrl).replace(/\/+$/, '');
 
 /** Triggers the local monitored demo app without forwarding the NexPulse session token. */
 export async function runDemoScenarioApi(): Promise<DemoScenarioResult> {

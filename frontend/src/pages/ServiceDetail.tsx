@@ -10,9 +10,15 @@ import { fetchAlertsApi } from '../services/alerts';
 import { fetchIncidentsApi } from '../services/incidents';
 import { Alert, Incident, LogEntry, Metric, Service, TelemetryEvent } from '../types';
 import { formatDate, formatDuration, safeExtractErrorMessage } from '../lib/utils';
+import { useAuth } from '../app/AuthContext';
+import { rotateServiceIngestKeyApi } from '../services/services';
+import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
 
 export const ServiceDetail: React.FC = () => {
   const { serviceId = '' } = useParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role.toLowerCase() === 'admin';
   const [service, setService] = useState<Service | null>(null);
   const [events, setEvents] = useState<TelemetryEvent[]>([]);
   const [metrics, setMetrics] = useState<Metric[]>([]);
@@ -21,6 +27,35 @@ export const ServiceDetail: React.FC = () => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+  const [rotateError, setRotateError] = useState<string | null>(null);
+  const [isRotating, setIsRotating] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
+
+  const rotateKey = async () => {
+    if (!service) return;
+    setIsRotating(true); setRotateError(null);
+    try {
+      const result = await rotateServiceIngestKeyApi(service.id);
+      setRotateConfirmOpen(false); setRotatedKey(result.ingest_key); setKeyCopied(false);
+    } catch (err) { setRotateError(safeExtractErrorMessage(err)); }
+    finally { setIsRotating(false); }
+  };
+  const powershellSignal = (serviceIdentifier: string) => {
+    const safeIdentifier = serviceIdentifier.replace(/`/g, '``').replace(/"/g, '`"');
+    return `$key = Read-Host "Paste the ingestion key for ${safeIdentifier}"
+$body = @{
+  service_id = "${safeIdentifier}"
+  method = "GET"
+  endpoint = "/health"
+  status_code = 200
+  duration_ms = 12
+  outcome = "success"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/events" -Headers @{ "X-Ingest-Key" = $key } -ContentType "application/json" -Body $body`;
+  };
 
   const load = useCallback(async () => {
     if (!serviceId) return;
@@ -45,8 +80,9 @@ export const ServiceDetail: React.FC = () => {
   const activeAlerts = alerts.filter((alert) => alert.status === 'active').length;
   const activeIncidents = incidents.filter((incident) => incident.status !== 'resolved').length;
   return <div className="space-y-6">
-    <PageHeader title={service.name} description={`${service.identifier || service.id} · ${service.environment}`} action={<Link to="/app/services" className="text-sm text-[#E50039]">← All services</Link>} />
-    {service.repository_url && <a href={service.repository_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 border border-[#333333] bg-[#1F1F1F] px-3 py-2 text-xs text-[#F7F7F7] hover:border-[#E50039]">Source repository <span className="font-mono text-[#E50039]">{service.repository_url.replace('https://github.com/', '')} ↗</span></a>}
+    <PageHeader title={service.name} description={`${service.identifier || service.id} · ${service.environment}`} action={<div className="flex flex-wrap items-center gap-3">{isAdmin && <Button size="sm" variant="secondary" onClick={() => { setRotateError(null); setRotateConfirmOpen(true); }}>Rotate ingestion key</Button>}<Link to="/app/services" className="text-sm text-[#E50039]">← All services</Link></div>} />
+    {service.repository_url && <a href={service.repository_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 border border-[#333333] bg-[#1F1F1F] px-3 py-2 text-xs text-[#F7F7F7] hover:border-[#E50039]">Linked GitHub repository <span className="font-mono text-[#E50039]">{service.repository_url.replace('https://github.com/', '')} ↗</span></a>}
+    {service.repository_url && <p className="-mt-3 max-w-3xl text-xs text-[#A7A7A7]">This repository link stores source metadata; it does not install monitoring code. To connect runtime telemetry, add NexPulse reporting to that app’s server-side code using identifier <code className="text-[#F7F7F7]">{service.identifier}</code>. GitHub-hosted runners cannot send to a localhost NexPulse address; use a publicly reachable NexPulse API URL after deployment.</p>}
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
       {[
         ['Health', <Badge variant={service.status === 'healthy' ? 'healthy' : service.status === 'degraded' ? 'warning' : 'critical'}>{service.status}</Badge>],
@@ -69,5 +105,23 @@ export const ServiceDetail: React.FC = () => {
         {[...incidents.filter((incident) => incident.status !== 'resolved').map((item) => ({ id: item.id, title: item.title, kind: 'Incident', status: item.status })), ...alerts.map((item) => ({ id: item.id, title: item.rule_name || 'Triggered alert', kind: 'Alert', status: item.status }))].length ? <div className="space-y-2">{incidents.filter((incident) => incident.status !== 'resolved').slice(0, 6).map((incident) => <Link key={incident.id} to={`/app/incidents/${incident.id}`} className="flex justify-between gap-3 border-b border-[#333333] py-2 text-xs hover:text-[#E50039]"><span>{incident.title}</span><span>{incident.status}</span></Link>)}{alerts.slice(0, 6).map((alert) => <div key={alert.id} className="flex justify-between gap-3 border-b border-[#333333] py-2 text-xs"><span>{alert.rule_name || 'Triggered alert'}</span><span>{alert.status}</span></div>)}</div> : <p className="text-sm text-[#A7A7A7]">No alerts or active incidents for this service.</p>}
       </section>
     </div>
+    <Modal isOpen={rotateConfirmOpen} onClose={() => { if (!isRotating) setRotateConfirmOpen(false); }} title="Rotate ingestion key">
+      <div className="space-y-4">
+        <p className="text-sm">Create a replacement key for <strong>{service.name}</strong>?</p>
+        <p className="text-sm text-[#F59E0B]">The current key stops working immediately. Update the secret in this service’s runtime or GitHub Actions before sending more telemetry. The new key is shown once.</p>
+        {rotateError && <p role="alert" className="text-sm text-[#EF4444]">{rotateError}</p>}
+        <div className="flex justify-end gap-2"><Button variant="secondary" disabled={isRotating} onClick={() => setRotateConfirmOpen(false)}>Cancel</Button><Button isLoading={isRotating} onClick={() => void rotateKey()}>Rotate key now</Button></div>
+      </div>
+    </Modal>
+    <Modal isOpen={!!rotatedKey} onClose={() => setRotatedKey(null)} title="New ingestion key" className="max-w-xl">
+      <div className="space-y-4">
+        <p className="border border-[#10B981]/30 bg-[#10B981]/10 p-3 text-sm text-[#10B981]">Copy and save this key now. NexPulse cannot show it again.</p>
+        <div className="flex gap-2"><div className="min-w-0 flex-1 break-all border border-[#333333] bg-[#262626] p-3 font-mono text-xs text-[#E50039]">{rotatedKey}</div><Button variant="secondary" size="sm" onClick={() => { if (rotatedKey) void navigator.clipboard.writeText(rotatedKey).then(() => setKeyCopied(true)).catch(() => setRotateError('Clipboard access failed. Select and copy the key manually.')); }}>{keyCopied ? 'Copied' : 'Copy key'}</Button></div>
+        <p className="text-xs text-[#A7A7A7]">This key belongs only to service identifier <code>{service.identifier}</code>. Use it with that exact identifier.</p>
+        <div><p className="mb-2 text-xs font-mono uppercase text-[#A7A7A7]">PowerShell local smoke signal</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all border border-[#333333] bg-[#191919] p-3 text-xs text-[#F7F7F7]">{powershellSignal(service.identifier || service.id)}</pre><Button variant="secondary" size="sm" onClick={() => { void navigator.clipboard.writeText(powershellSignal(service.identifier || service.id)).then(() => setKeyCopied(true)).catch(() => setRotateError('Clipboard access failed. Select and copy the command manually.')); }}>Copy PowerShell command</Button></div>
+        <p className="text-xs text-[#A7A7A7]">Run this from PowerShell on the same computer as the local app. At the prompt, paste the key shown above; don’t put the key in the Read-Host prompt text.</p>
+        <Button className="w-full" onClick={() => setRotatedKey(null)}>Done</Button>
+      </div>
+    </Modal>
   </div>;
 };
