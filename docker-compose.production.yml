@@ -58,7 +58,9 @@ services:
       SESSION_COOKIE_NAME: __Host-nexpulse_session
       SESSION_COOKIE_SECURE: "true"
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"
-      ALLOW_PUBLIC_REGISTRATION: "false"
+      REGISTRATION_ENABLED: "false"
+      REGISTRATION_REQUIRE_INVITE: "true"
+      REGISTRATION_INVITE_TTL_SECONDS: "604800"
       AI_ENABLED: "true"
       AI_PROVIDER: groq
       AI_API_KEY: ${AI_API_KEY:-}

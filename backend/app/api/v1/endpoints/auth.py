@@ -5,15 +5,21 @@ Includes user registration, login, logout, and current user identity (/me).
 import time
 from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
-from app.api.deps import get_user_repository, require_authenticated_user
+from app.api.deps import get_user_repository, require_authenticated_user, require_admin
 from app.core.config import settings
 from app.core.security import verify_password, create_access_token, decode_access_token
 from app.core.token_blacklist import blacklist_token
 from app.core.audit import log_audit_event
 from app.core.brute_force import login_tracker
 from app.core.rate_limit import rate_limiter
+from app.core.registration_invites import (
+    InvitationStoreUnavailable,
+    consume_registration_invite,
+    create_registration_invite,
+)
 from app.db.repositories.user_repository import UserRepositoryInterface
 from app.schemas.user import UserRegister, UserLogin, UserResponse, UserRole
+from app.schemas.invitation import RegistrationInvitationCreate, RegistrationInvitationResponse
 from app.schemas.token import Token
 
 router = APIRouter()
@@ -32,8 +38,8 @@ async def register_user(
     of client input. Public callers cannot assign themselves the admin role.
     Rate limited with fail-closed security control.
     """
-    if settings.is_production and not settings.ALLOW_PUBLIC_REGISTRATION:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Public registration is disabled.")
+    if settings.is_production and not settings.REGISTRATION_ENABLED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registration is currently disabled.")
 
     client_ip = request.client.host if request.client else "unknown"
     rate_key = f"auth_register:{client_ip}"
@@ -64,6 +70,17 @@ async def register_user(
             detail="User with this email already exists."
         )
 
+    if settings.is_production and settings.REGISTRATION_REQUIRE_INVITE:
+        invitation_code = (user_in.invitation_code or "").strip()
+        if not invitation_code:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="A valid registration invitation is required.")
+        try:
+            invitation_valid = await consume_registration_invite(invitation_code, str(user_in.email))
+        except InvitationStoreUnavailable:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Invitation service is temporarily unavailable.") from None
+        if not invitation_valid:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This invitation is invalid, expired, or assigned to another email address.")
+
     # Force standard user role for public registration
     user_in.role = UserRole.USER
 
@@ -77,6 +94,35 @@ async def register_user(
         )
     log_audit_event("USER_REGISTERED", user_id=str(db_user.id), email=db_user.email, success=True)
     return UserResponse.model_validate(db_user)
+
+
+@router.post("/invitations", response_model=RegistrationInvitationResponse, status_code=status.HTTP_201_CREATED)
+async def create_registration_invitation(
+    invitation_in: RegistrationInvitationCreate,
+    response: Response,
+    current_admin: Annotated[UserResponse, Depends(require_admin)],
+) -> RegistrationInvitationResponse:
+    """Creates a one-use invite bound to an email; the secret is returned only once."""
+    if settings.is_production and not settings.REGISTRATION_ENABLED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registration is currently disabled.")
+
+    limited, _, retry_after = await rate_limiter.is_rate_limited(
+        key=f"registration_invite:{current_admin.id}", max_requests=10, window_seconds=3600, fail_closed=True
+    )
+    if limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Invitation creation rate limit exceeded.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    try:
+        code, expires_at = await create_registration_invite(str(invitation_in.email))
+    except InvitationStoreUnavailable:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Invitation service is temporarily unavailable.") from None
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    return RegistrationInvitationResponse(email=invitation_in.email, invitation_code=code, expires_at=expires_at)
 
 
 @router.post("/login", response_model=Token, status_code=status.HTTP_200_OK)

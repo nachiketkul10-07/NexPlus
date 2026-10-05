@@ -12,13 +12,15 @@ export const Register: React.FC = () => {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [fullName, setFullName] = useState<string>('');
+  const [invitationCode, setInvitationCode] = useState<string>('');
   const [formError, setFormError] = useState<string | null>(null);
+  const invitationRequired = !import.meta.env.DEV;
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     clearError();
 
-    if (!email.trim() || !password.trim() || !fullName.trim()) {
+    if (!email.trim() || !password.trim() || !fullName.trim() || (invitationRequired && !invitationCode.trim())) {
       setFormError('Please fill out all required fields.');
       return;
     }
@@ -29,7 +31,7 @@ export const Register: React.FC = () => {
     }
 
     try {
-      await register(email.trim(), password.trim(), fullName.trim());
+      await register(email.trim(), password.trim(), fullName.trim(), undefined, invitationCode.trim() || undefined);
       navigate('/app/overview', { replace: true });
     } catch {
       // Handled by AuthContext error
@@ -44,7 +46,7 @@ export const Register: React.FC = () => {
           <Link to="/">
             <NexPulseLogo variant="hero" showTagline={true} />
           </Link>
-          <p className="text-xs text-[#A7A7A7]">Register new NexPulse operator credentials</p>
+          <p className="text-xs text-[#A7A7A7]">Create a NexPulse operator account with an administrator invitation</p>
         </div>
 
         {/* Global Error */}
@@ -85,6 +87,16 @@ export const Register: React.FC = () => {
             autoComplete="new-password"
             helperText="Must be at least 8 characters long"
           />
+
+          {invitationRequired && <Input
+            label="Invitation code"
+            type="text"
+            value={invitationCode}
+            onChange={(e) => setInvitationCode(e.target.value)}
+            placeholder="Paste the code from your administrator"
+            required
+            autoComplete="off"
+          />}
 
           <Button type="submit" className="w-full" isLoading={isLoading}>
             Create Account & Sign In

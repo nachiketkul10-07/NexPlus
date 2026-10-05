@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     # CORS Configuration
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     TRUSTED_HOSTS: str = "localhost,127.0.0.1,testserver"
-    ALLOW_PUBLIC_REGISTRATION: bool = True
+    # Public account creation is off in production until the invite flow is enabled.
+    REGISTRATION_ENABLED: bool = False
+    REGISTRATION_REQUIRE_INVITE: bool = True
+    REGISTRATION_INVITE_TTL_SECONDS: int = 7 * 24 * 60 * 60
 
     # Database & Redis Configuration (Prepared for Phase 4 & Phase 9)
     DATABASE_URL: str = "postgresql+asyncpg://pulseops:pulseops_dev_pass@localhost:5432/pulseops_db"
@@ -116,8 +119,10 @@ class Settings(BaseSettings):
         redis_url = urlparse(self.REDIS_URL)
         if redis_url.scheme not in {"redis", "rediss"} or not redis_url.hostname or redis_url.hostname in {"localhost", "127.0.0.1"} or not redis_url.password or len(redis_url.password) < 24 or "URL_ENCODED" in redis_url.password:
             problems.append("REDIS_URL must use a password-protected Redis service")
-        if self.ALLOW_PUBLIC_REGISTRATION:
-            problems.append("ALLOW_PUBLIC_REGISTRATION must be false until verified invitations are implemented")
+        if not self.REGISTRATION_REQUIRE_INVITE:
+            problems.append("REGISTRATION_REQUIRE_INVITE must be true in production")
+        if self.REGISTRATION_INVITE_TTL_SECONDS < 300 or self.REGISTRATION_INVITE_TTL_SECONDS > 30 * 24 * 60 * 60:
+            problems.append("REGISTRATION_INVITE_TTL_SECONDS must be between 300 seconds and 30 days")
         if self.AI_ENABLED and not self.AI_BASE_URL.startswith("https://"):
             problems.append("AI_BASE_URL must use HTTPS when AI requests are enabled")
         if self.AI_ENABLED and not self.AI_API_KEY.strip():

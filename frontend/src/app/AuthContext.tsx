@@ -10,7 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   error: string | null;
   login: (email: string, pass: string) => Promise<void>;
-  register: (email: string, pass: string, fullName: string, role?: UserRole) => Promise<void>;
+  register: (email: string, pass: string, fullName: string, role?: UserRole, invitationCode?: string) => Promise<void>;
   logout: () => void;
   clearError: () => void;
 }
@@ -77,11 +77,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (email: string, pass: string, fullName: string, role: UserRole = 'OPERATOR') => {
+  const register = async (email: string, pass: string, fullName: string, role: UserRole = 'OPERATOR', invitationCode?: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      await registerApi(email, pass, fullName, role);
+      await registerApi(email, pass, fullName, role, invitationCode);
       // Auto-login upon registration
       await login(email, pass);
     } catch (err) {

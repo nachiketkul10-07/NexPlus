@@ -9,6 +9,7 @@ import { Service } from '../types';
 import { safeExtractErrorMessage } from '../lib/utils';
 
 interface HealthResponse { status: string; service: string; version: string; environment: string; dependencies?: { database?: string; redis?: string } }
+interface RegistrationInvitation { email: string; invitation_code: string; expires_at: string }
 
 export const Settings: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -16,6 +17,11 @@ export const Settings: React.FC = () => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [invitation, setInvitation] = useState<RegistrationInvitation | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -36,6 +42,35 @@ export const Settings: React.FC = () => {
 
   const section = 'rounded border border-[#333333] bg-[#1F1F1F] p-5 sm:p-6';
   const label = 'text-[10px] font-mono uppercase tracking-[.16em] text-[#A7A7A7]';
+  const createInvitation = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setInviteError(null);
+    setInvitation(null);
+    setInviteCopied(false);
+    setInviteLoading(true);
+    try {
+      const created = await apiFetch<RegistrationInvitation>('/auth/invitations', {
+        method: 'POST',
+        body: JSON.stringify({ email: inviteEmail.trim() }),
+      });
+      setInvitation(created);
+    } catch (err) {
+      setInviteError(safeExtractErrorMessage(err));
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const copyInvitation = async () => {
+    if (!invitation) return;
+    try {
+      await navigator.clipboard.writeText(invitation.invitation_code);
+      setInviteCopied(true);
+    } catch {
+      setInviteError('Clipboard access was blocked. Select and copy the invitation code manually.');
+    }
+  };
+
   return <div className="space-y-6">
     <PageHeader title="Workspace Settings" description="Operator identity, current session, telemetry connection, and system availability." action={<Button size="sm" variant="secondary" onClick={() => void refresh()}>Refresh status</Button>} />
 
@@ -54,6 +89,25 @@ export const Settings: React.FC = () => {
         {error && <p role="status" className="mt-4 text-sm text-[#EF4444]">Service inventory unavailable: {error}</p>}
       </section>
     </div>
+
+    {user?.role.toLowerCase() === 'admin' && <section className={section} aria-labelledby="settings-invitations">
+      <div className="mb-4"><h2 id="settings-invitations" className="text-sm font-semibold font-mono uppercase">Invite an operator</h2><p className="mt-2 text-sm text-[#A7A7A7]">Create an email-bound invitation code. It can be used once and expires after seven days.</p></div>
+      <form onSubmit={(event) => void createInvitation(event)} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <label className="flex-1 text-xs text-[#A7A7A7]">Invitee email
+          <input className="mt-2 w-full rounded border border-[#3A3A3A] bg-[#191919] px-3 py-2.5 text-sm text-white outline-none focus:border-[#E50039]" type="email" autoComplete="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="person@example.com" />
+        </label>
+        <Button type="submit" isLoading={inviteLoading}>Generate invitation</Button>
+      </form>
+      {inviteError && <p role="alert" className="mt-3 text-sm text-[#EF4444]">{inviteError}</p>}
+      {invitation && <div className="mt-4 rounded border border-[#10B981]/30 bg-[#10B981]/5 p-4">
+        <p className="text-sm text-[#10B981]">Invitation created for {invitation.email}. Share this code with them securely; it is shown only once.</p>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+          <code className="min-w-0 flex-1 break-all rounded border border-[#333] bg-[#191919] p-3 text-xs text-white">{invitation.invitation_code}</code>
+          <Button variant="secondary" onClick={() => void copyInvitation()}>{inviteCopied ? 'Copied' : 'Copy code'}</Button>
+        </div>
+        <p className="mt-2 text-xs text-[#A7A7A7]">Expires {new Date(invitation.expires_at).toLocaleString()}</p>
+      </div>}
+    </section>}
 
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <section className={section} aria-labelledby="settings-preferences"><h2 id="settings-preferences" className="mb-5 text-sm font-semibold font-mono uppercase">Preferences</h2><div className="flex items-center justify-between gap-4"><div><p className="text-sm">Reduced motion</p><p className="mt-1 text-xs text-[#A7A7A7]">Read from your operating system accessibility preference.</p></div><Badge variant={reducedMotion ? 'info' : 'neutral'}>{reducedMotion ? 'Enabled' : 'System default'}</Badge></div><p className="mt-4 border-t border-[#333333] pt-4 text-xs text-[#777]">Theme and saved workspace preferences are not configured for this account.</p></section>

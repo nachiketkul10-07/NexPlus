@@ -16,7 +16,8 @@ export async function registerApi(
   email: string,
   password: string,
   fullName: string,
-  role: UserRole = 'OPERATOR'
+  role: UserRole = 'OPERATOR',
+  invitationCode?: string,
 ): Promise<User> {
   return apiFetch<User>('/auth/register', {
     method: 'POST',
@@ -25,6 +26,7 @@ export async function registerApi(
       password,
       full_name: fullName,
       role,
+      invitation_code: invitationCode,
     }),
   });
 }
