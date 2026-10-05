@@ -25,8 +25,8 @@ export class ForbiddenError extends ApiError {
 }
 
 export class RateLimitError extends ApiError {
-  constructor(message = 'Too many requests. Please try again shortly.') {
-    super(429, message);
+  constructor(message = 'Too many requests. Please try again shortly.', detail?: unknown) {
+    super(429, message, detail);
     this.name = 'RateLimitError';
   }
 }
@@ -117,7 +117,27 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
     }
 
     if (response.status === 429) {
-      throw new RateLimitError();
+      let message = 'Too many requests. Please try again shortly.';
+      let detail: unknown;
+      try {
+        const body = await response.json();
+        detail = body;
+        const serverMessage = body?.error?.message || body?.detail;
+        if (typeof serverMessage === 'string' && serverMessage.trim()) {
+          message = serverMessage;
+        }
+      } catch {
+        // Use the generic fallback when the rate-limit response has no JSON body.
+      }
+
+      const retryAfter = response.headers.get('Retry-After');
+      if (retryAfter && message === 'Too many requests. Please try again shortly.') {
+        const retrySeconds = Number(retryAfter);
+        if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+          message = `Too many requests. Please try again in ${retrySeconds} seconds.`;
+        }
+      }
+      throw new RateLimitError(message, detail);
     }
 
     if (response.status >= 500) {
