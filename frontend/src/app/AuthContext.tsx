@@ -45,7 +45,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err) {
         if (isMounted) {
-          logout();
+          setUser(null);
+          setError(null);
         }
       } finally {
         if (isMounted) {
@@ -70,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       const msg = safeExtractErrorMessage(err);
       setError(msg);
-      logout();
+      setUser(null);
       throw err;
     } finally {
       setIsLoading(false);

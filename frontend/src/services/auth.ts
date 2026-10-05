@@ -4,6 +4,7 @@ import { User, UserRole } from '../types';
 export async function loginApi(email: string, password: string): Promise<User> {
   const response = await apiFetch<{ user: User }>('/auth/session', {
     method: 'POST',
+    preserveUnauthorizedMessage: true,
     body: JSON.stringify({
       email,
       password,
@@ -34,6 +35,7 @@ export async function registerApi(
 export async function getCurrentUserApi(): Promise<User> {
   return apiFetch<User>('/auth/me', {
     method: 'GET',
+    skipUnauthorizedHandler: true,
   });
 }
 

@@ -11,8 +11,8 @@ export class ApiError extends Error {
 }
 
 export class UnauthorizedError extends ApiError {
-  constructor(message = 'Session expired. Please log in again.') {
-    super(401, message);
+  constructor(message = 'Session expired. Please log in again.', detail?: unknown) {
+    super(401, message, detail);
     this.name = 'UnauthorizedError';
   }
 }
@@ -49,10 +49,17 @@ export function setOnUnauthorizedCallback(callback: () => void) {
 interface FetchOptions extends RequestInit {
   timeoutMs?: number;
   skipUnauthorizedHandler?: boolean;
+  preserveUnauthorizedMessage?: boolean;
 }
 
 export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  const { timeoutMs = 15000, headers = {}, skipUnauthorizedHandler = false, ...customConfig } = options;
+  const {
+    timeoutMs = 15000,
+    headers = {},
+    skipUnauthorizedHandler = false,
+    preserveUnauthorizedMessage = false,
+    ...customConfig
+  } = options;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,6 +91,21 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
     clearTimeout(timeoutId);
 
     if (response.status === 401) {
+      if (preserveUnauthorizedMessage) {
+        let message = 'Invalid email or password.';
+        let detail: unknown;
+        try {
+          const body = await response.json();
+          detail = body;
+          const serverMessage = body?.error?.message || body?.detail;
+          if (typeof serverMessage === 'string' && serverMessage.trim()) {
+            message = serverMessage;
+          }
+        } catch {
+          // Keep the safe login-specific fallback for non-JSON responses.
+        }
+        throw new UnauthorizedError(message, detail);
+      }
       if (!skipUnauthorizedHandler && onUnauthorizedCallback) {
         onUnauthorizedCallback();
       }
