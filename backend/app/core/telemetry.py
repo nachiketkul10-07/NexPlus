@@ -3,7 +3,9 @@ PulseOps OpenTelemetry & Distributed Tracing Setup
 Provides OpenTelemetry SDK initialization, OTLP span export pipeline,
 and sensitive header/payload sanitization for FastAPI application.
 """
+import os
 from typing import Optional
+from urllib.parse import urlparse
 from fastapi import FastAPI
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -37,19 +39,25 @@ def init_telemetry(app: FastAPI) -> None:
         sampler = TraceIdRatioBased(settings.OTEL_TRACE_SAMPLING_RATE)
         provider = TracerProvider(resource=resource, sampler=sampler)
 
-        try:
-            otlp_exporter = OTLPSpanExporter(
-                endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
-                timeout=settings.OTEL_EXPORTER_OTLP_TIMEOUT
-            )
-            processor = BatchSpanProcessor(otlp_exporter)
-            provider.add_span_processor(processor)
-            logger.info(f"OTLP Span Exporter configured | Endpoint: {settings.OTEL_EXPORTER_OTLP_ENDPOINT}")
-        except Exception as exc:
-            logger.warning(
-                f"OTLP Span Exporter initialization warning (Collector may be offline) | "
-                f"Reason: {exc.__class__.__name__} - {exc}"
-            )
+        exporter_endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
+        endpoint_host = urlparse(exporter_endpoint).hostname
+        no_remote_collector = bool(os.getenv("VERCEL")) and endpoint_host in {"localhost", "127.0.0.1", "::1"}
+        if no_remote_collector:
+            logger.info("OTLP span export skipped on Vercel because the configured collector is local to the developer machine")
+        else:
+            try:
+                otlp_exporter = OTLPSpanExporter(
+                    endpoint=exporter_endpoint,
+                    timeout=settings.OTEL_EXPORTER_OTLP_TIMEOUT
+                )
+                processor = BatchSpanProcessor(otlp_exporter)
+                provider.add_span_processor(processor)
+                logger.info(f"OTLP Span Exporter configured | Endpoint: {exporter_endpoint}")
+            except Exception as exc:
+                logger.warning(
+                    f"OTLP Span Exporter initialization warning (Collector may be offline) | "
+                    f"Reason: {exc.__class__.__name__} - {exc}"
+                )
 
         trace.set_tracer_provider(provider)
 

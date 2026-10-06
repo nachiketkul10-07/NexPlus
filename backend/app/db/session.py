@@ -7,6 +7,7 @@ import os
 import socket
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.logging import logger
@@ -31,6 +32,14 @@ if db_url.startswith("postgresql") and not settings.is_production:
 engine_args = {}
 if db_url.startswith("sqlite"):
     engine_args["connect_args"] = {"check_same_thread": False}
+else:
+    # Neon may close idle pooled connections; validate them before reuse and
+    # recycle them regularly for long-running local processes.
+    engine_args.update(pool_pre_ping=True, pool_recycle=300)
+    if os.getenv("VERCEL"):
+        # Vercel can reuse Python workers across requests with different event
+        # loop lifetimes. Avoid carrying asyncpg connections across invocations.
+        engine_args["poolclass"] = NullPool
 
 # Async SQLAlchemy Engine
 engine = create_async_engine(
