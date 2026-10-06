@@ -7,7 +7,6 @@ import time
 import asyncio
 import httpx
 from urllib.parse import urljoin
-from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 from fastapi import FastAPI, Query, HTTPException, status, Request
@@ -82,12 +81,6 @@ else:
 # deployments must provide the per-service key through encrypted environment config.
 INGEST_KEY = os.getenv("PULSEOPS_INGEST_KEY") or (None if os.getenv("VERCEL") else "pik_dev_demo_app_secret_key_12345")
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "true").lower() in ("true", "1", "yes")
-# The demo endpoint runs internal ASGI requests concurrently. This request-scoped
-# collector reports whether each resulting signal was actually accepted.
-_demo_telemetry_results: ContextVar[List[Dict[str, Any]] | None] = ContextVar(
-    "demo_telemetry_results", default=None
-)
-
 # OpenTelemetry Instrumentation for Demo Application
 try:
     from opentelemetry import trace
@@ -138,6 +131,7 @@ async def telemetry_middleware(request: Request, call_next):
     start_time = time.time()
     error_msg = None
     status_code = 500
+    response = None
 
     try:
         response = await call_next(request)
@@ -171,9 +165,18 @@ async def telemetry_middleware(request: Request, call_next):
             # Await the outbound request so serverless runtimes don't freeze the
             # function before telemetry has been delivered.
             delivery = await _post_telemetry(payload)
-            results = _demo_telemetry_results.get()
-            if results is not None:
-                results.append(delivery)
+            # Attach delivery outcome to this request's response. This remains
+            # correctly correlated when the demo scenarios run concurrently.
+            if response is not None:
+                response.headers["X-NexPulse-Telemetry-Accepted"] = (
+                    "true" if delivery.get("accepted") else "false"
+                )
+                delivery_status = delivery.get("status_code")
+                if delivery_status is not None:
+                    response.headers["X-NexPulse-Telemetry-Status"] = str(delivery_status)
+                delivery_reason = delivery.get("reason")
+                if delivery_reason:
+                    response.headers["X-NexPulse-Telemetry-Reason"] = delivery_reason
 
 
 # Global Exception Handler to prevent stack trace leaks
@@ -279,28 +282,21 @@ async def run_demo_scenario() -> Dict[str, Any]:
         "/api/error",
         "/api/error",
     ]
-    telemetry_results: List[Dict[str, Any]] = []
-    token = _demo_telemetry_results.set(telemetry_results)
-    try:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://demo-app.local") as client:
-            results = await asyncio.gather(*(client.get(path) for path in paths))
-    finally:
-        _demo_telemetry_results.reset(token)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://demo-app.local") as client:
+        results = await asyncio.gather(*(client.get(path) for path in paths))
 
     failed = sum(1 for result in results if result.status_code >= 400)
     telemetry_accepted = sum(
-        1
-        for result in telemetry_results
-        if result.get("status_code") is not None
-        and 200 <= result["status_code"] < 300
+        1 for result in results
+        if result.headers.get("X-NexPulse-Telemetry-Accepted") == "true"
     )
-    telemetry_failed = len(telemetry_results) - telemetry_accepted
+    telemetry_failed = len(results) - telemetry_accepted
     failure_statuses = sorted({
-        result["status_code"]
-        for result in telemetry_results
-        if result.get("status_code") is not None
-        and not 200 <= result["status_code"] < 300
+        int(result.headers["X-NexPulse-Telemetry-Status"])
+        for result in results
+        if result.headers.get("X-NexPulse-Telemetry-Accepted") != "true"
+        and result.headers.get("X-NexPulse-Telemetry-Status", "").isdigit()
     })
     return {
         "status": "completed",
