@@ -76,9 +76,17 @@ def create_application() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(CookieCSRFMiddleware)
+    trusted_hosts = settings.trusted_hosts_list if settings.is_production else ["*"]
+    if settings.is_production:
+        # Vercel service bindings call sibling services through an internal
+        # hostname such as `api.<deployment>.services.vercel-infra.com`.
+        # Keep the configured public hosts exact, while allowing only Vercel's
+        # internal service-host suffix for authenticated service-to-service
+        # requests (for example, demo telemetry ingestion).
+        trusted_hosts = [*trusted_hosts, "*.services.vercel-infra.com"]
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=settings.trusted_hosts_list if settings.is_production else ["*"],
+        allowed_hosts=trusted_hosts,
     )
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(HTTPLoggingMiddleware)
