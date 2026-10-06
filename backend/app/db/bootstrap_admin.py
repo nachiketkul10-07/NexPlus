@@ -48,8 +48,12 @@ async def _create_first_admin(email: str, full_name: str, password: str) -> None
         await session.commit()
 
 
-async def _close_engine() -> None:
-    await engine.dispose()
+async def _bootstrap(email: str, full_name: str, password: str) -> None:
+    """Create the administrator and dispose the async engine on the same loop."""
+    try:
+        await _create_first_admin(email, full_name, password)
+    finally:
+        await engine.dispose()
 
 
 def main() -> None:
@@ -69,10 +73,7 @@ def main() -> None:
     if password != getpass.getpass("Confirm password: "):
         raise SystemExit("Passwords did not match.")
 
-    try:
-        asyncio.run(_create_first_admin(email, full_name, password))
-    finally:
-        asyncio.run(_close_engine())
+    asyncio.run(_bootstrap(email, full_name, password))
     print("Production administrator created. Sign in through the deployed application.")
 
 
