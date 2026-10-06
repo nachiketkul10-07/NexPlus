@@ -35,6 +35,30 @@ app.add_middleware(
     allow_headers=["Accept", "Content-Type"],
 )
 
+
+class StripServicePrefix:
+    """Allow this app to serve both locally at `/` and on Vercel at `/demo`."""
+
+    def __init__(self, app, prefix: str):
+        self.app = app
+        self.prefix = prefix.rstrip("/")
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            if path == self.prefix or path.startswith(self.prefix + "/"):
+                scope = dict(scope)
+                scope["path"] = path[len(self.prefix):] or "/"
+                raw_path = scope.get("raw_path")
+                if raw_path:
+                    scope["raw_path"] = raw_path[len(self.prefix.encode("ascii")): ] or b"/"
+        await self.app(scope, receive, send)
+
+
+# Services can receive the original public path (including their route prefix).
+# This is a no-op for local requests and for routes Vercel has already rewritten.
+app.add_middleware(StripServicePrefix, prefix="/demo")
+
 # Telemetry client settings
 _vercel_host = os.getenv("VERCEL_URL")
 _default_ingest_url = (
