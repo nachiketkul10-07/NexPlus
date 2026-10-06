@@ -121,7 +121,11 @@ async def _post_telemetry(payload: Dict[str, Any]) -> Dict[str, Any]:
                 json=payload,
                 headers={"X-Ingest-Key": INGEST_KEY}
             )
-            return {"accepted": response.is_success, "status_code": response.status_code}
+            # Treat every 2xx response (including the API's 202 Accepted) as
+            # successful ingestion. Keep this explicit so the demo summary and
+            # the API's accepted response contract cannot disagree.
+            accepted = 200 <= response.status_code < 300
+            return {"accepted": accepted, "status_code": response.status_code}
     except httpx.HTTPError:
         # Keep the demo target available when NexPulse is offline, but report
         # the failed delivery to the scenario caller instead of claiming success.
@@ -285,9 +289,19 @@ async def run_demo_scenario() -> Dict[str, Any]:
         _demo_telemetry_results.reset(token)
 
     failed = sum(1 for result in results if result.status_code >= 400)
-    telemetry_accepted = sum(1 for result in telemetry_results if result["accepted"])
+    telemetry_accepted = sum(
+        1
+        for result in telemetry_results
+        if result.get("status_code") is not None
+        and 200 <= result["status_code"] < 300
+    )
     telemetry_failed = len(telemetry_results) - telemetry_accepted
-    failure_statuses = sorted({result["status_code"] for result in telemetry_results if result.get("status_code")})
+    failure_statuses = sorted({
+        result["status_code"]
+        for result in telemetry_results
+        if result.get("status_code") is not None
+        and not 200 <= result["status_code"] < 300
+    })
     return {
         "status": "completed",
         "requests_generated": len(results),
