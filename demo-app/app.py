@@ -6,6 +6,7 @@ import os
 import time
 import asyncio
 import httpx
+from urllib.parse import urljoin
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Dict, List, Any
@@ -67,7 +68,16 @@ _default_ingest_url = (
     if _vercel_host
     else "http://localhost:8000/api/v1/telemetry/events"
 )
-INGEST_URL = os.getenv("PULSEOPS_INGEST_URL", _default_ingest_url)
+_api_service_url = os.getenv("NEXPULSE_API_URL")
+if _api_service_url:
+    # Vercel service bindings route this server-to-server request directly to
+    # the API service, avoiding its public deployment-protection/routing layer.
+    INGEST_URL = urljoin(
+        _api_service_url.rstrip("/") + "/",
+        "api/v1/telemetry/events",
+    )
+else:
+    INGEST_URL = os.getenv("PULSEOPS_INGEST_URL", _default_ingest_url)
 # The checked-in fallback only supports the explicitly local demo seed. Vercel
 # deployments must provide the per-service key through encrypted environment config.
 INGEST_KEY = os.getenv("PULSEOPS_INGEST_KEY") or (None if os.getenv("VERCEL") else "pik_dev_demo_app_secret_key_12345")

@@ -18,7 +18,15 @@
     "demo": {
       "root": "demo-app/",
       "framework": "fastapi",
-      "entrypoint": "app:app"
+      "entrypoint": "app:app",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "api",
+          "format": "url",
+          "env": "NEXPULSE_API_URL"
+        }
+      ]
     }
   },
   "rewrites": [
