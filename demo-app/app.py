@@ -6,6 +6,7 @@ import os
 import time
 import asyncio
 import httpx
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 from fastapi import FastAPI, Query, HTTPException, status, Request
@@ -71,6 +72,11 @@ INGEST_URL = os.getenv("PULSEOPS_INGEST_URL", _default_ingest_url)
 # deployments must provide the per-service key through encrypted environment config.
 INGEST_KEY = os.getenv("PULSEOPS_INGEST_KEY") or (None if os.getenv("VERCEL") else "pik_dev_demo_app_secret_key_12345")
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "true").lower() in ("true", "1", "yes")
+# The demo endpoint runs internal ASGI requests concurrently. This request-scoped
+# collector reports whether each resulting signal was actually accepted.
+_demo_telemetry_results: ContextVar[List[Dict[str, Any]] | None] = ContextVar(
+    "demo_telemetry_results", default=None
+)
 
 # OpenTelemetry Instrumentation for Demo Application
 try:
@@ -92,20 +98,24 @@ except Exception as _otel_exc:
 
 
 
-async def _post_telemetry(payload: Dict[str, Any]) -> None:
+async def _post_telemetry(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Asynchronously dispatches HTTP telemetry observation to PulseOps ingestion engine."""
-    if not ENABLE_TELEMETRY or not INGEST_KEY:
-        return
+    if not ENABLE_TELEMETRY:
+        return {"accepted": False, "status_code": None, "reason": "disabled"}
+    if not INGEST_KEY:
+        return {"accepted": False, "status_code": None, "reason": "missing_key"}
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            await client.post(
+            response = await client.post(
                 INGEST_URL,
                 json=payload,
                 headers={"X-Ingest-Key": INGEST_KEY}
             )
-    except Exception:
-        # Silently absorb connection errors so demo application is never degraded
-        pass
+            return {"accepted": response.is_success, "status_code": response.status_code}
+    except httpx.HTTPError:
+        # Keep the demo target available when NexPulse is offline, but report
+        # the failed delivery to the scenario caller instead of claiming success.
+        return {"accepted": False, "status_code": None, "reason": "unreachable"}
 
 
 @app.middleware("http")
@@ -146,7 +156,10 @@ async def telemetry_middleware(request: Request, call_next):
             }
             # Await the outbound request so serverless runtimes don't freeze the
             # function before telemetry has been delivered.
-            await _post_telemetry(payload)
+            delivery = await _post_telemetry(payload)
+            results = _demo_telemetry_results.get()
+            if results is not None:
+                results.append(delivery)
 
 
 # Global Exception Handler to prevent stack trace leaks
@@ -252,18 +265,27 @@ async def run_demo_scenario() -> Dict[str, Any]:
         "/api/error",
         "/api/error",
     ]
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://demo-app.local") as client:
-        results = await asyncio.gather(*(client.get(path) for path in paths))
+    telemetry_results: List[Dict[str, Any]] = []
+    token = _demo_telemetry_results.set(telemetry_results)
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://demo-app.local") as client:
+            results = await asyncio.gather(*(client.get(path) for path in paths))
+    finally:
+        _demo_telemetry_results.reset(token)
 
-    # Let the middleware's asynchronous ingestion posts finish before reporting success.
-    await asyncio.sleep(0.3)
     failed = sum(1 for result in results if result.status_code >= 400)
+    telemetry_accepted = sum(1 for result in telemetry_results if result["accepted"])
+    telemetry_failed = len(telemetry_results) - telemetry_accepted
+    failure_statuses = sorted({result["status_code"] for result in telemetry_results if result.get("status_code")})
     return {
         "status": "completed",
         "requests_generated": len(results),
         "successful_requests": len(results) - failed,
         "failed_requests": failed,
         "slow_requests": 1,
+        "telemetry_accepted": telemetry_accepted,
+        "telemetry_failed": telemetry_failed,
+        "telemetry_failure_statuses": failure_statuses,
     }
 

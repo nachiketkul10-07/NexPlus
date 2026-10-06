@@ -67,7 +67,7 @@ export const Overview: React.FC = () => {
       const traffic = await runDemoScenarioApi();
       const evaluation = await triggerEvaluationApi();
       setDemoResult({ traffic, evaluation });
-      setDemoMessage('Demo traffic ingested and alert rules evaluated.');
+      setDemoMessage(`${traffic.telemetry_accepted} telemetry events accepted and alert rules evaluated.`);
       await fetchData();
     } catch (err) {
       setDemoError(safeExtractErrorMessage(err));
