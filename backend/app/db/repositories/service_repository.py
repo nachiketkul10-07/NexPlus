@@ -42,12 +42,13 @@ class PostgresServiceRepository:
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
-    async def create_service(self, service_in: ServiceCreate) -> Tuple[Service, str]:
+    async def create_service(self, service_in: ServiceCreate, owner_user_id: UUID) -> Tuple[Service, str]:
         """Creates a new service and generates a raw ingestion key returned once."""
         raw_key = generate_ingest_key()
         key_hash = hash_ingest_key(raw_key)
 
         service = Service(
+            owner_user_id=owner_user_id,
             identifier=service_in.identifier,
             name=service_in.name,
             description=service_in.description,
@@ -127,5 +128,22 @@ class PostgresServiceRepository:
     async def list_services(self) -> List[Service]:
         """Fetch all registered services ordered by creation date."""
         stmt = select(Service).order_by(Service.created_at.desc())
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_by_id_for_user(self, service_id: UUID, user_id: UUID, *, is_admin: bool = False) -> Optional[Service]:
+        """Fetch a service only when it belongs to the user, unless the caller is an admin."""
+        stmt = select(Service).where(Service.id == service_id)
+        if not is_admin:
+            stmt = stmt.where(Service.owner_user_id == user_id)
+        res = await self.session.execute(stmt)
+        return res.scalars().first()
+
+    async def list_services_for_user(self, user_id: UUID, *, is_admin: bool = False) -> List[Service]:
+        """List owned services; legacy ownerless services are visible to admins only."""
+        stmt = select(Service)
+        if not is_admin:
+            stmt = stmt.where(Service.owner_user_id == user_id)
+        stmt = stmt.order_by(Service.created_at.desc())
         res = await self.session.execute(stmt)
         return list(res.scalars().all())

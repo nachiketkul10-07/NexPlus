@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 
 // JSDOM has no native IntersectionObserver; Framer Motion's viewport reveal
 // feature must still mount in component tests without pretending elements intersect.

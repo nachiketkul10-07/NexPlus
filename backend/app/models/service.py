@@ -4,12 +4,13 @@ Service ORM Model representing Monitored Applications
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID, uuid4
-from sqlalchemy import String, Text, DateTime, Boolean
+from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, GUID
 
 if TYPE_CHECKING:
+    from app.models.user import User
     from app.models.telemetry import TelemetryEvent, Metric, LogEntry
     from app.models.alert import AlertRule, Alert
     from app.models.incident import Incident
@@ -25,6 +26,12 @@ class Service(Base, TimestampMixin):
         GUID,
         primary_key=True,
         default=uuid4
+    )
+    owner_user_id: Mapped[Optional[UUID]] = mapped_column(
+        GUID,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     identifier: Mapped[str] = mapped_column(
         String(80),
@@ -71,6 +78,8 @@ class Service(Base, TimestampMixin):
         Text,
         nullable=True
     )
+
+    owner: Mapped[Optional["User"]] = relationship("User")
 
     # Relationships
     telemetry_events: Mapped[List["TelemetryEvent"]] = relationship(

@@ -4,9 +4,7 @@ This repository is configured for a Vercel project with three services: the Vite
 
 ## Production prerequisites
 
-The backend requires managed PostgreSQL and password-protected Redis. It intentionally rejects local SQLite/Redis and unsafe production settings. Create those resources with a provider and plan that fit your budget, then add their connection URLs as encrypted Vercel production environment variables. No database or Redis resources are provisioned by this repository.
-
-The Vercel team currently has no project or configured data-store integrations. Do not enable a public deployment until the required environment is configured. Vercel Services availability and pricing depend on the team's current plan; confirm the feature is available in the account before creating the production project.
+This checkout is already linked to the NexPulse Vercel project. The production backend uses managed PostgreSQL and password-protected Redis; the repository does not create or manage those resources. Keep their URLs in encrypted Vercel environment variables and verify the production project's values and deployment target in Vercel before releasing. Never copy the contents of `.vercel/project.json` into documentation or source control.
 
 ## Vercel environment variables
 
@@ -40,9 +38,9 @@ The frontend build uses relative `/api/v1` and `/demo` paths. Do not set an API 
 ## Initialize production data and administrator
 
 1. Add the production environment variables to Vercel. Registration stays closed unless both registration flags are deliberately enabled; when enabled, an administrator must issue an email-bound, one-use invitation code that expires after seven days. The code is stored hashed in Redis and returned only once.
-2. From a private local checkout, place the production `DATABASE_URL` in the ignored `backend/.env` file (never commit it), and set `ENVIRONMENT=production` there. From PowerShell, run `cd backend; alembic upgrade head`.
-3. With the same private configuration, run `python -m app.db.bootstrap_admin`. It asks for the administrator email, name, and password interactively; the password is not accepted in command-line arguments or printed. It refuses local databases and refuses to run after any admin exists.
-4. Remove the production URL from `backend/.env` when setup is complete. Ensure no local `.env` or credential file is staged.
+2. From a private local checkout, provide the production `DATABASE_URL` only to the migration process (for example, use Vercel's encrypted environment pull into an ignored local file). Set `ENVIRONMENT=production`, then run `cd backend; alembic upgrade head`. Do not print or commit pulled environment values.
+3. Only when no production administrator exists, run `python -m app.db.bootstrap_admin` with the same private database configuration. It asks for the administrator email, name, and password interactively; the password is not accepted in command-line arguments or printed. It refuses local databases and refuses to run after any admin exists.
+4. Remove any temporary production environment file when setup is complete. Ensure no local `.env` or credential file is staged.
 5. Sign in to NexPulse. Admins can issue registration invitations from Workspace Settings. Share the code with the intended operator through a private channel; they enter it with the matching email address on the registration page. Each code works once and expires after seven days.
 6. Register the demo service with identifier `demo-app` and copy its generated ingestion key once. Add that value to Vercel as encrypted `PULSEOPS_INGEST_KEY`, then redeploy so the demo app can emit telemetry.
 7. Enable AI by setting `AI_API_KEY` in Vercel. Without it, the rest of the platform can operate, but AI analysis cannot make provider requests.
@@ -51,7 +49,7 @@ Do not run `python -m app.db.seed` in production; it creates development account
 
 ## Deploy and verify
 
-Before deploying a release that changes the production schema, run `alembic upgrade head` against the same production `DATABASE_URL` from a trusted local checkout or a protected migration job. Do not rely on FastAPI startup to alter production tables. This release adds migration `003_service_lifecycle_and_metadata`; run it before or as part of the backend deployment so service lifecycle and metadata columns exist.
+Before deploying a release that changes the production schema, run `alembic upgrade head` against the same production `DATABASE_URL` from a trusted local checkout or a protected migration job. Do not rely on FastAPI startup to alter production tables. The migration chain currently ends at `004_service_ownership`, following `003_service_lifecycle_metadata`. Migration 004 adds nullable service ownership so existing rows remain intact; unowned existing services remain visible to administrators until explicitly assigned. Apply the migration before deploying code that scopes customer data by service owner.
 
 The Vercel Git project should use the repository's production branch and repository root. The checked-in `vercel.json` defines the service roots. Once environment variables and migrations are ready, deploy through the linked Vercel project and verify:
 
@@ -59,7 +57,7 @@ The Vercel Git project should use the repository's production branch and reposit
 - `/health` responds over the deployed domain.
 - sign-in works and account registration stays disabled.
 - a public GitHub repository can be previewed and added; a private one can be accessed only using a user-supplied read-only token.
-- the demo service emits telemetry and the resulting events, metrics, logs, alerts, and incidents appear in their views.
+- the demo service emits telemetry and the resulting events, metrics, logs, alerts, and incidents appear in their views. The demo uses `PULSEOPS_INGEST_KEY`; the Streamlit integration uses the generic `NEXPULSE_INGEST_KEY` configuration described in [INTEGRATIONS.md](INTEGRATIONS.md). Keep each credential scoped to its own service and secret store.
 - AI analysis works only after a valid provider key is configured.
 
 The previously shared ingestion key must be considered compromised. Do not reuse it; create a fresh service key for production and revoke/delete the exposed one if it still exists.

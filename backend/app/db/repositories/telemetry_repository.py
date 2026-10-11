@@ -112,7 +112,8 @@ class PostgresTelemetryRepository:
         service_id: Optional[UUID] = None,
         from_ts: Optional[datetime] = None,
         to_ts: Optional[datetime] = None,
-        limit: int = 100
+        limit: int = 100,
+        service_ids: Optional[List[UUID]] = None,
     ) -> List[TelemetryEvent]:
         """Query recent telemetry events with optional filters."""
         stmt = select(TelemetryEvent)
@@ -120,6 +121,8 @@ class PostgresTelemetryRepository:
 
         if service_id:
             conditions.append(TelemetryEvent.service_id == service_id)
+        if service_ids is not None:
+            conditions.append(TelemetryEvent.service_id.in_(service_ids))
         if from_ts:
             conditions.append(TelemetryEvent.occurred_at >= from_ts)
         if to_ts:
@@ -163,7 +166,8 @@ class PostgresTelemetryRepository:
         metric_name: Optional[str] = None,
         from_ts: Optional[datetime] = None,
         to_ts: Optional[datetime] = None,
-        limit: int = 300
+        limit: int = 300,
+        service_ids: Optional[List[UUID]] = None,
     ) -> List[Metric]:
         """Query recorded metrics with optional filters."""
         stmt = select(Metric)
@@ -171,6 +175,8 @@ class PostgresTelemetryRepository:
 
         if service_id:
             conditions.append(Metric.service_id == service_id)
+        if service_ids is not None:
+            conditions.append(Metric.service_id.in_(service_ids))
         if metric_name:
             conditions.append(Metric.metric_name == metric_name)
         if from_ts:
@@ -219,7 +225,8 @@ class PostgresTelemetryRepository:
         level: Optional[str] = None,
         from_ts: Optional[datetime] = None,
         to_ts: Optional[datetime] = None,
-        limit: int = 100
+        limit: int = 100,
+        service_ids: Optional[List[UUID]] = None,
     ) -> List[LogEntry]:
         """Query application log lines with optional filters."""
         stmt = select(LogEntry)
@@ -227,6 +234,8 @@ class PostgresTelemetryRepository:
 
         if service_id:
             conditions.append(LogEntry.service_id == service_id)
+        if service_ids is not None:
+            conditions.append(LogEntry.service_id.in_(service_ids))
         if level:
             conditions.append(LogEntry.level == level.upper())
         if from_ts:

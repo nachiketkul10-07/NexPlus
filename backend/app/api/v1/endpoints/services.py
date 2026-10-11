@@ -13,7 +13,7 @@ from app.schemas.service import (
     ServiceCreate, ServiceCreatedResponse, ServiceResponse,
     GitHubRepositoryPreview, GitHubRepositoryPreviewRequest, ServiceIngestKeyResponse,
 )
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, UserRole
 from app.core.rate_limit import rate_limiter
 from app.services.github_repository import GitHubRepositoryError, fetch_repository_preview
 
@@ -58,7 +58,7 @@ async def register_service(
             detail=f"Service identifier '{service_in.identifier}' is already registered."
         )
 
-    service, raw_ingest_key = await service_repo.create_service(service_in)
+    service, raw_ingest_key = await service_repo.create_service(service_in, current_user.id)
     # Persist the credential hash before returning the only copy of the raw key.
     # This avoids returning a key that another serverless request cannot yet find.
     try:
@@ -91,7 +91,10 @@ async def list_services(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ):
     """Lists all registered monitored services."""
-    services = await service_repo.list_services()
+    services = await service_repo.list_services_for_user(
+        current_user.id,
+        is_admin=current_user.role == UserRole.ADMIN,
+    )
     return services
 
 
@@ -102,7 +105,11 @@ async def get_service_detail(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ):
     """Retrieves service configuration and current state."""
-    service = await service_repo.get_by_id(service_id)
+    service = await service_repo.get_by_id_for_user(
+        service_id,
+        current_user.id,
+        is_admin=current_user.role == UserRole.ADMIN,
+    )
     if not service:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

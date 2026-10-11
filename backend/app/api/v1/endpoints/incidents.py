@@ -23,7 +23,7 @@ from app.schemas.incident import (
     IncidentEventResponse,
     IncidentEventCreate,
 )
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, UserRole
 from app.services.incident_service import IncidentService
 from app.schemas.ai import AIAnalysisResponse, AIAnalysisRequest
 from app.services.ai.ai_service import AIService
@@ -49,6 +49,7 @@ def _build_incident_response(incident) -> IncidentResponse:
 @router.get("", response_model=List[IncidentResponse], status_code=status.HTTP_200_OK)
 async def list_incidents(
     incident_repo: Annotated[PostgresIncidentRepository, Depends(get_incident_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Filter by target service UUID"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: open, investigating, resolved"),
@@ -58,13 +59,19 @@ async def list_incidents(
     offset: int = Query(0, ge=0)
 ) -> List[IncidentResponse]:
     """Lists recent operational incidents with pagination and filtering."""
+    if service_id is not None and not await service_repo.get_by_id_for_user(
+        service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    ):
+        raise HTTPException(status_code=404, detail="Service not found.")
     incidents = await incident_repo.list_incidents(
         service_id=service_id,
         status=status_filter,
         severity=severity,
         assignee_user_id=assignee_user_id,
         limit=limit,
-        offset=offset
+        offset=offset,
+        owner_user_id=current_user.id,
+        is_admin=current_user.role == UserRole.ADMIN,
     )
     return [_build_incident_response(inc) for inc in incidents]
 
@@ -76,7 +83,9 @@ async def get_incident(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> IncidentResponse:
     """Retrieves a single incident by ID."""
-    incident = await incident_repo.get_incident_by_id(incident_id)
+    incident = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -92,13 +101,16 @@ async def update_incident(
     payload: IncidentUpdate,
     session: Annotated[AsyncSession, Depends(get_db)],
     incident_repo: Annotated[PostgresIncidentRepository, Depends(get_incident_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> IncidentResponse:
     """
     Updates incident status, assignee, or resolution note.
     Enforces server-side authorization and state machine transition rules.
     """
-    incident = await incident_repo.get_incident_by_id(incident_id)
+    incident = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -109,6 +121,15 @@ async def update_incident(
 
     try:
         if "assignee_user_id" in payload.model_fields_set:
+            if (
+                current_user.role != UserRole.ADMIN
+                and payload.assignee_user_id is not None
+                and payload.assignee_user_id != current_user.id
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Operators can assign an incident only to themselves. Administrators can assign any operator.",
+                )
             incident = await inc_service.assign_incident(
                 incident=incident,
                 assignee_user_id=payload.assignee_user_id,
@@ -130,7 +151,9 @@ async def update_incident(
             detail=str(e)
         )
 
-    refreshed = await incident_repo.get_incident_by_id(incident_id)
+    refreshed = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     return _build_incident_response(refreshed)
 
 
@@ -141,7 +164,9 @@ async def list_incident_events(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> List[IncidentEventResponse]:
     """Retrieves append-only timeline events for an incident in chronological order."""
-    incident = await incident_repo.get_incident_by_id(incident_id)
+    incident = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -166,7 +191,9 @@ async def add_incident_event(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> IncidentEventResponse:
     """Appends an investigation note or timeline event to an incident."""
-    incident = await incident_repo.get_incident_by_id(incident_id)
+    incident = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -244,7 +271,9 @@ async def analyze_incident(
     Generates or refreshes advisory AI analysis for an incident.
     Constructs sanitized context, evaluates telemetry evidence, and returns structured analysis.
     """
-    incident = await incident_repo.get_incident_by_id(incident_id)
+    incident = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -266,7 +295,9 @@ async def get_latest_ai_analysis(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> AIAnalysisResponse:
     """Retrieves latest generated AI analysis snapshot for an incident."""
-    incident = await incident_repo.get_incident_by_id(incident_id)
+    incident = await incident_repo.get_incident_by_id(
+        incident_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

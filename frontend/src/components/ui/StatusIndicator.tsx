@@ -34,7 +34,7 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({
 
   return (
     <span className={cn('inline-flex items-center space-x-2 text-xs font-medium', className)} {...props}>
-      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', dotColor)} />
+      <span className={cn('w-2 h-2 rounded-full shrink-0', dotColor)} />
       {showLabel && <span className="text-[#F7F7F7] capitalize">{label}</span>}
     </span>
   );

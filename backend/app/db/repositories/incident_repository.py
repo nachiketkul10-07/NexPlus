@@ -88,7 +88,13 @@ class PostgresIncidentRepository:
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
-    async def get_incident_by_id(self, incident_id: UUID) -> Optional[Incident]:
+    async def get_incident_by_id(
+        self,
+        incident_id: UUID,
+        *,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
+    ) -> Optional[Incident]:
         """Fetches an Incident by primary key ID with eager loaded relationships."""
         stmt = (
             select(Incident)
@@ -98,8 +104,11 @@ class PostgresIncidentRepository:
                 selectinload(Incident.assignee),
                 selectinload(Incident.timeline_events).selectinload(IncidentEvent.actor)
             )
+            .join(Service, Incident.service_id == Service.id)
             .where(Incident.id == incident_id)
         )
+        if not is_admin:
+            stmt = stmt.where(Service.owner_user_id == owner_user_id)
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
@@ -110,7 +119,9 @@ class PostgresIncidentRepository:
         severity: Optional[str] = None,
         assignee_user_id: Optional[UUID] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
     ) -> List[Incident]:
         """Queries recent incidents with optional filters and eager preloaded relations."""
         stmt = (
@@ -122,6 +133,10 @@ class PostgresIncidentRepository:
             )
         )
         conditions = []
+
+        if not is_admin:
+            stmt = stmt.join(Service, Incident.service_id == Service.id)
+            conditions.append(Service.owner_user_id == owner_user_id)
 
         if service_id:
             conditions.append(Incident.service_id == service_id)
