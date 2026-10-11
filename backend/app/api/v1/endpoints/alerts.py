@@ -36,12 +36,22 @@ router = APIRouter()
 @router.get("/rules", response_model=List[AlertRuleResponse], status_code=status.HTTP_200_OK)
 async def list_alert_rules(
     alert_repo: Annotated[PostgresAlertRepository, Depends(get_alert_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Filter rules by service target UUID"),
     enabled_only: bool = Query(False, description="Filter for enabled rules only")
 ) -> List[AlertRuleResponse]:
     """Lists configured alert evaluation rules."""
-    rules = await alert_repo.list_rules(service_id=service_id, enabled_only=enabled_only)
+    if service_id is not None and not await service_repo.get_by_id_for_user(
+        service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    ):
+        raise HTTPException(status_code=404, detail="Service not found.")
+    rules = await alert_repo.list_rules(
+        service_id=service_id,
+        enabled_only=enabled_only,
+        owner_user_id=current_user.id,
+        is_admin=current_user.role == UserRole.ADMIN,
+    )
     return [AlertRuleResponse.model_validate(r) for r in rules]
 
 
@@ -58,7 +68,9 @@ async def create_alert_rule(
     Global rules (service_id=None) require admin role.
     """
     if rule_in.service_id is not None:
-        service = await service_repo.get_by_id(rule_in.service_id)
+        service = await service_repo.get_by_id_for_user(
+            rule_in.service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+        )
         if not service:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -92,7 +104,9 @@ async def get_alert_rule(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> AlertRuleResponse:
     """Retrieves an alert rule by ID."""
-    rule = await alert_repo.get_rule_by_id(rule_id)
+    rule = await alert_repo.get_rule_by_id(
+        rule_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not rule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -110,7 +124,9 @@ async def update_alert_rule(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> AlertRuleResponse:
     """Updates an existing alert rule."""
-    rule = await alert_repo.get_rule_by_id(rule_id)
+    rule = await alert_repo.get_rule_by_id(
+        rule_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not rule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -118,7 +134,9 @@ async def update_alert_rule(
         )
 
     if rule.service_id is not None:
-        service = await service_repo.get_by_id(rule.service_id)
+        service = await service_repo.get_by_id_for_user(
+            rule.service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+        )
         if not service:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -130,6 +148,15 @@ async def update_alert_rule(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only Administrators can modify global alert rules."
             )
+
+    if "service_id" in rule_in.model_fields_set:
+        if rule_in.service_id is None:
+            if current_user.role != UserRole.ADMIN:
+                raise HTTPException(status_code=403, detail="Only Administrators can create global alert rules.")
+        elif not await service_repo.get_by_id_for_user(
+            rule_in.service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+        ):
+            raise HTTPException(status_code=404, detail="Target service not found.")
 
     updates = rule_in.model_dump(exclude_unset=True)
     updated_rule = await alert_repo.update_rule(rule, updates)
@@ -152,7 +179,9 @@ async def delete_alert_rule(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ):
     """Deletes an alert rule."""
-    rule = await alert_repo.get_rule_by_id(rule_id)
+    rule = await alert_repo.get_rule_by_id(
+        rule_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not rule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -160,7 +189,9 @@ async def delete_alert_rule(
         )
 
     if rule.service_id is not None:
-        service = await service_repo.get_by_id(rule.service_id)
+        service = await service_repo.get_by_id_for_user(
+            rule.service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+        )
         if not service:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -190,6 +221,7 @@ async def delete_alert_rule(
 @router.get("", response_model=List[AlertResponse], status_code=status.HTTP_200_OK)
 async def list_triggered_alerts(
     alert_repo: Annotated[PostgresAlertRepository, Depends(get_alert_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Filter by service UUID"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: active, resolved"),
@@ -197,11 +229,17 @@ async def list_triggered_alerts(
     limit: int = Query(100, ge=1, le=500)
 ) -> List[AlertResponse]:
     """Lists triggered alert records."""
+    if service_id is not None and not await service_repo.get_by_id_for_user(
+        service_id, current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    ):
+        raise HTTPException(status_code=404, detail="Service not found.")
     alerts = await alert_repo.list_alerts(
         service_id=service_id,
         status=status_filter,
         severity=severity,
-        limit=limit
+        limit=limit,
+        owner_user_id=current_user.id,
+        is_admin=current_user.role == UserRole.ADMIN,
     )
 
     res = []
@@ -220,7 +258,9 @@ async def get_triggered_alert(
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)]
 ) -> AlertResponse:
     """Retrieves a single triggered alert by ID."""
-    alert = await alert_repo.get_alert_by_id(alert_id)
+    alert = await alert_repo.get_alert_by_id(
+        alert_id, owner_user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
     if not alert:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -238,6 +278,8 @@ async def get_triggered_alert(
 @router.post("/evaluate", response_model=AlertEvaluationSummary, status_code=status.HTTP_200_OK)
 async def trigger_rule_evaluation(
     session: Annotated[AsyncSession, Depends(get_db)],
+    alert_repo: Annotated[PostgresAlertRepository, Depends(get_alert_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Optional target service UUID"),
     rule_id: Optional[UUID] = Query(None, description="Optional single target rule UUID")
@@ -247,10 +289,31 @@ async def trigger_rule_evaluation(
     Evaluates telemetry against active rules and updates alert states.
     """
     engine = AlertEngine(session)
+    is_admin = current_user.role == UserRole.ADMIN
+    owned_services = await service_repo.list_services_for_user(current_user.id, is_admin=is_admin)
+    visible_service_ids = [service.id for service in owned_services]
+    if service_id is not None and service_id not in visible_service_ids:
+        raise HTTPException(status_code=404, detail="Service not found.")
+
     if rule_id is not None:
-        summary = await engine.evaluate_rule(rule_id)
+        rule = await alert_repo.get_rule_by_id(
+            rule_id, owner_user_id=current_user.id, is_admin=is_admin
+        )
+        if rule is None:
+            raise HTTPException(status_code=404, detail="Alert rule not found.")
+        summary = await engine.evaluate_rule(
+            rule_id,
+            service_ids=None if is_admin else visible_service_ids,
+            owner_user_id=current_user.id,
+            is_admin=is_admin,
+        )
     else:
-        summary = await engine.evaluate_all_rules(service_id=service_id)
+        summary = await engine.evaluate_all_rules(
+            service_id=service_id,
+            service_ids=None if is_admin else visible_service_ids,
+            owner_user_id=current_user.id,
+            is_admin=is_admin,
+        )
 
     log_audit_event(
         "ALERT_EVALUATION_EXECUTED",

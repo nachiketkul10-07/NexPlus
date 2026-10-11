@@ -5,7 +5,7 @@ Manages async persistence and querying of alert rules and triggered alert events
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -42,20 +42,36 @@ class PostgresAlertRepository:
         await self.session.refresh(rule)
         return rule
 
-    async def get_rule_by_id(self, rule_id: UUID) -> Optional[AlertRule]:
+    async def get_rule_by_id(
+        self,
+        rule_id: UUID,
+        *,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
+    ) -> Optional[AlertRule]:
         """Fetches an AlertRule by primary key ID."""
         stmt = select(AlertRule).where(AlertRule.id == rule_id)
+        if not is_admin:
+            stmt = stmt.outerjoin(Service, AlertRule.service_id == Service.id).where(
+                or_(AlertRule.service_id.is_(None), Service.owner_user_id == owner_user_id)
+            )
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
     async def list_rules(
         self,
         service_id: Optional[UUID] = None,
-        enabled_only: bool = False
+        enabled_only: bool = False,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
     ) -> List[AlertRule]:
         """Lists alert rules with optional service and enabled state filters."""
         stmt = select(AlertRule)
         conditions = []
+
+        if not is_admin:
+            stmt = stmt.outerjoin(Service, AlertRule.service_id == Service.id)
+            conditions.append(or_(AlertRule.service_id.is_(None), Service.owner_user_id == owner_user_id))
 
         if service_id is not None:
             conditions.append((AlertRule.service_id == service_id) | (AlertRule.service_id.is_(None)))
@@ -156,13 +172,22 @@ class PostgresAlertRepository:
         await self.session.refresh(alert)
         return alert
 
-    async def get_alert_by_id(self, alert_id: UUID) -> Optional[Alert]:
+    async def get_alert_by_id(
+        self,
+        alert_id: UUID,
+        *,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
+    ) -> Optional[Alert]:
         """Fetches a triggered Alert by primary key ID with rule & service relationships."""
         stmt = (
             select(Alert)
             .options(selectinload(Alert.rule), selectinload(Alert.service))
+            .join(Service, Alert.service_id == Service.id)
             .where(Alert.id == alert_id)
         )
+        if not is_admin:
+            stmt = stmt.where(Service.owner_user_id == owner_user_id)
         res = await self.session.execute(stmt)
         return res.scalars().first()
 
@@ -171,11 +196,18 @@ class PostgresAlertRepository:
         service_id: Optional[UUID] = None,
         status: Optional[str] = None,
         severity: Optional[str] = None,
-        limit: int = 100
+        limit: int = 100,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
     ) -> List[Alert]:
         """Queries recent triggered alerts with optional filters and preloaded relations."""
         stmt = select(Alert).options(selectinload(Alert.rule), selectinload(Alert.service))
+        if not is_admin:
+            stmt = stmt.join(Service, Alert.service_id == Service.id)
         conditions = []
+
+        if not is_admin:
+            conditions.append(Service.owner_user_id == owner_user_id)
 
         if service_id:
             conditions.append(Alert.service_id == service_id)

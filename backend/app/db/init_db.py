@@ -29,6 +29,7 @@ async def init_db() -> None:
             "framework": "VARCHAR(80)",
             "language": "VARCHAR(40)",
             "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+            "owner_user_id": "CHAR(36) NULL",
         }
         for name, sql_type in additions.items():
             if name not in existing_columns:

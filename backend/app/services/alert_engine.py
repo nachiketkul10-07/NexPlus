@@ -37,9 +37,18 @@ class AlertEngine:
         self.telemetry_repo = PostgresTelemetryRepository(session)
         self.service_repo = PostgresServiceRepository(session)
 
-    async def evaluate_rule(self, rule_id: UUID) -> AlertEvaluationSummary:
+    async def evaluate_rule(
+        self,
+        rule_id: UUID,
+        *,
+        service_ids: Optional[List[UUID]] = None,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
+    ) -> AlertEvaluationSummary:
         """Evaluates a single alert rule by ID."""
-        rule = await self.alert_repo.get_rule_by_id(rule_id)
+        rule = await self.alert_repo.get_rule_by_id(
+            rule_id, owner_user_id=owner_user_id, is_admin=is_admin
+        )
         if not rule or not rule.enabled:
             return AlertEvaluationSummary(
                 rules_evaluated=0,
@@ -48,14 +57,31 @@ class AlertEngine:
                 alerts_resolved=0
             )
 
-        return await self._process_rules([rule])
+        return await self._process_rules([rule], service_ids=service_ids)
 
-    async def evaluate_all_rules(self, service_id: Optional[UUID] = None) -> AlertEvaluationSummary:
+    async def evaluate_all_rules(
+        self,
+        service_id: Optional[UUID] = None,
+        *,
+        service_ids: Optional[List[UUID]] = None,
+        owner_user_id: Optional[UUID] = None,
+        is_admin: bool = True,
+    ) -> AlertEvaluationSummary:
         """Evaluates all enabled alert rules (optionally filtered by target service)."""
-        rules = await self.alert_repo.list_rules(service_id=service_id, enabled_only=True)
-        return await self._process_rules(rules)
+        rules = await self.alert_repo.list_rules(
+            service_id=service_id,
+            enabled_only=True,
+            owner_user_id=owner_user_id,
+            is_admin=is_admin,
+        )
+        return await self._process_rules(rules, service_ids=service_ids)
 
-    async def _process_rules(self, rules: List[AlertRule]) -> AlertEvaluationSummary:
+    async def _process_rules(
+        self,
+        rules: List[AlertRule],
+        *,
+        service_ids: Optional[List[UUID]] = None,
+    ) -> AlertEvaluationSummary:
         rules_evaluated = 0
         alerts_triggered = 0
         alerts_updated = 0
@@ -63,6 +89,9 @@ class AlertEngine:
 
         # Fetch all active services for evaluation
         all_services = await self.service_repo.list_services()
+        if service_ids is not None:
+            allowed_ids = set(service_ids)
+            all_services = [service for service in all_services if service.id in allowed_ids]
 
         for rule in rules:
             rules_evaluated += 1

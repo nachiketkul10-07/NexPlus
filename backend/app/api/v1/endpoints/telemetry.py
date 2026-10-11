@@ -32,13 +32,31 @@ from app.schemas.telemetry import (
     LogCreate, LogResponse,
     UnifiedTelemetryBatchPayload, IngestionResponse
 )
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, UserRole
 
 router = APIRouter()
 
 EventBatch = Annotated[List[TelemetryEventCreate], Field(max_length=100)]
 MetricBatch = Annotated[List[MetricCreate], Field(max_length=100)]
 LogBatch = Annotated[List[LogCreate], Field(max_length=100)]
+
+
+async def _visible_service_ids(
+    service_repo: PostgresServiceRepository,
+    current_user: UserResponse,
+    requested_service_id: Optional[UUID],
+) -> Optional[List[UUID]]:
+    """Return a user's service scope and reject an explicitly inaccessible service."""
+    if current_user.role == UserRole.ADMIN:
+        if requested_service_id is not None and not await service_repo.get_by_id(requested_service_id):
+            raise HTTPException(status_code=404, detail="Service not found.")
+        return None
+
+    services = await service_repo.list_services_for_user(current_user.id)
+    visible_ids = [service.id for service in services]
+    if requested_service_id is not None and requested_service_id not in visible_ids:
+        raise HTTPException(status_code=404, detail="Service not found.")
+    return visible_ids
 
 
 # ----------------------------------------------------------------------
@@ -221,6 +239,7 @@ async def ingest_unified_batch(
 @router.get("/events", response_model=List[TelemetryEventResponse], status_code=status.HTTP_200_OK)
 async def query_telemetry_events(
     telemetry_repo: Annotated[PostgresTelemetryRepository, Depends(get_telemetry_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Filter by service UUID"),
     from_ts: Optional[datetime] = Query(None, alias="from"),
@@ -228,12 +247,16 @@ async def query_telemetry_events(
     limit: int = Query(100, ge=1, le=500)
 ):
     """Query telemetry events by service or timestamp range."""
-    return await telemetry_repo.query_events(service_id=service_id, from_ts=from_ts, to_ts=to_ts, limit=limit)
+    service_ids = await _visible_service_ids(service_repo, current_user, service_id)
+    return await telemetry_repo.query_events(
+        service_id=service_id, from_ts=from_ts, to_ts=to_ts, limit=limit, service_ids=service_ids
+    )
 
 
 @router.get("/metrics", response_model=List[MetricResponse], status_code=status.HTTP_200_OK)
 async def query_metrics(
     telemetry_repo: Annotated[PostgresTelemetryRepository, Depends(get_telemetry_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Filter by service UUID"),
     metric_name: Optional[str] = Query(None, description="Metric name filter (e.g. error_rate)"),
@@ -242,18 +265,21 @@ async def query_metrics(
     limit: int = Query(300, ge=1, le=1000)
 ):
     """Query recorded metric snapshots."""
+    service_ids = await _visible_service_ids(service_repo, current_user, service_id)
     return await telemetry_repo.query_metrics(
         service_id=service_id,
         metric_name=metric_name,
         from_ts=from_ts,
         to_ts=to_ts,
-        limit=limit
+        limit=limit,
+        service_ids=service_ids,
     )
 
 
 @router.get("/logs", response_model=List[LogResponse], status_code=status.HTTP_200_OK)
 async def query_logs(
     telemetry_repo: Annotated[PostgresTelemetryRepository, Depends(get_telemetry_repository)],
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
     current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
     service_id: Optional[UUID] = Query(None, description="Filter by service UUID"),
     level: Optional[str] = Query(None, description="Log level filter (e.g. ERROR)"),
@@ -262,10 +288,12 @@ async def query_logs(
     limit: int = Query(100, ge=1, le=500)
 ):
     """Query application log records."""
+    service_ids = await _visible_service_ids(service_repo, current_user, service_id)
     return await telemetry_repo.query_logs(
         service_id=service_id,
         level=level,
         from_ts=from_ts,
         to_ts=to_ts,
-        limit=limit
+        limit=limit,
+        service_ids=service_ids,
     )

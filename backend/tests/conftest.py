@@ -96,9 +96,20 @@ async def prepare_database():
         )
         session.add(standard_user)
 
+        second_user = User(
+            id=UUID("44444444-4444-4444-4444-444444444444"),
+            email="second@pulseops.io",
+            full_name="Second Operator",
+            hashed_password=hash_password("SecondPass123!"),
+            role=UserRole.USER.value,
+            is_active=True,
+        )
+        session.add(second_user)
+
         # 3. Monitored Demo Service
         demo_service = Service(
             id=UUID("33333333-3333-3333-3333-333333333333"),
+            owner_user_id=standard_user.id,
             identifier="demo-app",
             name="Demo Application",
             environment="development",

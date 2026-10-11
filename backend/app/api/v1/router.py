@@ -34,6 +34,7 @@ api_v1_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 async def metrics_alias(
     req: telemetry.Request,
     telemetry_repo=telemetry.Depends(telemetry.get_telemetry_repository),
+    service_repo=telemetry.Depends(telemetry.get_service_repository),
     current_user=telemetry.Depends(telemetry.require_authenticated_user),
     service_id=telemetry.Query(None),
     metric_name=telemetry.Query(None),
@@ -43,6 +44,7 @@ async def metrics_alias(
 ):
     return await telemetry.query_metrics(
         telemetry_repo=telemetry_repo,
+        service_repo=service_repo,
         current_user=current_user,
         service_id=service_id,
         metric_name=metric_name,
@@ -55,6 +57,7 @@ async def metrics_alias(
 async def logs_alias(
     req: telemetry.Request,
     telemetry_repo=telemetry.Depends(telemetry.get_telemetry_repository),
+    service_repo=telemetry.Depends(telemetry.get_service_repository),
     current_user=telemetry.Depends(telemetry.require_authenticated_user),
     service_id=telemetry.Query(None),
     level=telemetry.Query(None),
@@ -64,6 +67,7 @@ async def logs_alias(
 ):
     return await telemetry.query_logs(
         telemetry_repo=telemetry_repo,
+        service_repo=service_repo,
         current_user=current_user,
         service_id=service_id,
         level=level,
