@@ -9,7 +9,7 @@ export interface User {
   created_at: string;
 }
 
-export type ServiceStatus = 'healthy' | 'degraded' | 'critical' | 'offline' | 'unknown';
+export type ServiceStatus = 'healthy' | 'degraded' | 'critical' | 'offline' | 'unknown' | 'inactive';
 
 export interface Service {
   id: string;
@@ -23,6 +23,7 @@ export interface Service {
   repository_url?: string | null;
   health_path?: string;
   status: ServiceStatus;
+  is_active?: boolean;
   description?: string | null;
   last_seen_at?: string | null;
   created_at: string;
@@ -32,6 +33,9 @@ export interface Service {
 export interface ServiceCreatePayload {
   identifier: string;
   name: string;
+  description?: string;
+  framework?: string;
+  language?: string;
   environment?: string;
   base_url?: string;
   health_path?: string;

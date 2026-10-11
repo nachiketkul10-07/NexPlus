@@ -189,6 +189,12 @@ async def get_authenticated_service(
             detail="Invalid service ingestion key"
         )
 
+    if not service.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This service is inactive. Reactivate it in NexPulse before sending telemetry."
+        )
+
     limited, _, retry_after = await rate_limiter.is_rate_limited(
         key=f"telemetry_ingest:{service.id}",
         max_requests=settings.RATE_LIMIT_TELEMETRY_PER_MINUTE,

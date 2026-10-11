@@ -14,6 +14,8 @@ NexPulse is a developer observability and incident response workspace. It collec
 
 Telemetry flows from the demo service through the authenticated ingestion API into the database. Each accepted HTTP event also derives request count, latency, and error metric samples and a structured log. The workspace reads those persisted records from the query API.
 
+External applications use the same service registry and HTTP contract; no framework-specific backend or database access is required. See [Connect an application to NexPulse](docs/INTEGRATIONS.md) for service onboarding, schemas, key management, Python and Node.js clients, PowerShell, rate limits, retries, and HTTP error troubleshooting. Integration keys are unique per service and stored as hashes.
+
 ## Run locally on Windows
 
 Use three terminals from the repository root. The Python environment must have the packages in `backend/requirements.txt` and `demo-app/requirements.txt` installed.

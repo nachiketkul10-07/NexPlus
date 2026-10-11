@@ -1,13 +1,13 @@
 """
 Telemetry Ingestion & Query Endpoints
 Handles HTTP observations, metric snapshots, application logs, and telemetry query contracts.
-
-NOTE: Redis-backed telemetry rate limiting is deferred to the Redis/background processing phase.
+Ingestion rate limits are enforced per authenticated service in the service-auth dependency.
 """
 from datetime import datetime
 from typing import List, Optional, Union, Annotated
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status, HTTPException
+from pydantic import Field
 
 from app.api.deps import (
     get_authenticated_service,
@@ -36,6 +36,10 @@ from app.schemas.user import UserResponse
 
 router = APIRouter()
 
+EventBatch = Annotated[List[TelemetryEventCreate], Field(max_length=100)]
+MetricBatch = Annotated[List[MetricCreate], Field(max_length=100)]
+LogBatch = Annotated[List[LogCreate], Field(max_length=100)]
+
 
 # ----------------------------------------------------------------------
 # INGESTION ENDPOINTS (Service Authentication Required)
@@ -43,7 +47,7 @@ router = APIRouter()
 
 @router.post("/events", response_model=IngestionResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_telemetry_events(
-    payload: Union[TelemetryEventCreate, List[TelemetryEventCreate]],
+    payload: Union[TelemetryEventCreate, EventBatch],
     request: Request,
     service: Annotated[Service, Depends(get_authenticated_service)],
     telemetry_repo: Annotated[PostgresTelemetryRepository, Depends(get_telemetry_repository)],
@@ -54,12 +58,20 @@ async def ingest_telemetry_events(
     Authenticated via Service Ingest Key (X-Ingest-Key header).
     """
     events_list = payload if isinstance(payload, list) else [payload]
+    if not events_list:
+        raise HTTPException(status_code=422, detail="At least one event is required.")
 
     for item in events_list:
         verify_service_ownership(service, item.service_id)
 
-    await telemetry_repo.create_events_batch(service.id, events_list)
-    await service_repo.update_last_seen(service.id)
+    try:
+        await telemetry_repo.create_events_batch(service.id, events_list)
+        await service_repo.update_last_seen(service.id)
+        await telemetry_repo.session.commit()
+    except Exception:
+        TELEMETRY_INGESTION_ERRORS_TOTAL.labels(telemetry_type="event").inc()
+        raise
+    TELEMETRY_EVENTS_INGESTED_TOTAL.labels(telemetry_type="event", outcome="success").inc(len(events_list))
 
     req_id = getattr(request.state, "request_id", "req_unknown")
     return IngestionResponse(
@@ -72,7 +84,7 @@ async def ingest_telemetry_events(
 
 @router.post("/metrics", response_model=IngestionResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_metrics(
-    payload: Union[MetricCreate, List[MetricCreate]],
+    payload: Union[MetricCreate, MetricBatch],
     request: Request,
     service: Annotated[Service, Depends(get_authenticated_service)],
     telemetry_repo: Annotated[PostgresTelemetryRepository, Depends(get_telemetry_repository)],
@@ -83,6 +95,8 @@ async def ingest_metrics(
     Authenticated via Service Ingest Key.
     """
     metrics_list = payload if isinstance(payload, list) else [payload]
+    if not metrics_list:
+        raise HTTPException(status_code=422, detail="At least one metric is required.")
 
     for item in metrics_list:
         verify_service_ownership(service, item.service_id)
@@ -90,6 +104,7 @@ async def ingest_metrics(
     try:
         await telemetry_repo.create_metrics_batch(service.id, metrics_list)
         await service_repo.update_last_seen(service.id)
+        await telemetry_repo.session.commit()
 
         TELEMETRY_EVENTS_INGESTED_TOTAL.labels(telemetry_type="metric", outcome="success").inc(len(metrics_list))
         TELEMETRY_METRICS_INGESTED_TOTAL.labels(outcome="success").inc(len(metrics_list))
@@ -108,7 +123,7 @@ async def ingest_metrics(
 
 @router.post("/logs", response_model=IngestionResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_logs(
-    payload: Union[LogCreate, List[LogCreate]],
+    payload: Union[LogCreate, LogBatch],
     request: Request,
     service: Annotated[Service, Depends(get_authenticated_service)],
     telemetry_repo: Annotated[PostgresTelemetryRepository, Depends(get_telemetry_repository)],
@@ -119,6 +134,8 @@ async def ingest_logs(
     Authenticated via Service Ingest Key.
     """
     logs_list = payload if isinstance(payload, list) else [payload]
+    if not logs_list:
+        raise HTTPException(status_code=422, detail="At least one log is required.")
 
     for item in logs_list:
         verify_service_ownership(service, item.service_id)
@@ -126,6 +143,7 @@ async def ingest_logs(
     try:
         await telemetry_repo.create_logs_batch(service.id, logs_list)
         await service_repo.update_last_seen(service.id)
+        await telemetry_repo.session.commit()
 
         TELEMETRY_EVENTS_INGESTED_TOTAL.labels(telemetry_type="log", outcome="success").inc(len(logs_list))
         TELEMETRY_LOGS_INGESTED_TOTAL.labels(outcome="success").inc(len(logs_list))
@@ -176,6 +194,16 @@ async def ingest_unified_batch(
         accepted_count += len(payload.logs)
 
     await service_repo.update_last_seen(service.id)
+    await telemetry_repo.session.commit()
+
+    if payload.events:
+        TELEMETRY_EVENTS_INGESTED_TOTAL.labels(telemetry_type="event", outcome="success").inc(len(payload.events))
+    if payload.metrics:
+        TELEMETRY_EVENTS_INGESTED_TOTAL.labels(telemetry_type="metric", outcome="success").inc(len(payload.metrics))
+        TELEMETRY_METRICS_INGESTED_TOTAL.labels(outcome="success").inc(len(payload.metrics))
+    if payload.logs:
+        TELEMETRY_EVENTS_INGESTED_TOTAL.labels(telemetry_type="log", outcome="success").inc(len(payload.logs))
+        TELEMETRY_LOGS_INGESTED_TOTAL.labels(outcome="success").inc(len(payload.logs))
 
     req_id = getattr(request.state, "request_id", "req_unknown")
     return IngestionResponse(

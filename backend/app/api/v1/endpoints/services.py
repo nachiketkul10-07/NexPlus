@@ -5,6 +5,7 @@ Provides registration and listing of monitored applications.
 from typing import List, Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import require_authenticated_user, require_admin, get_service_repository
 from app.db.repositories.service_repository import PostgresServiceRepository
@@ -60,7 +61,11 @@ async def register_service(
     service, raw_ingest_key = await service_repo.create_service(service_in)
     # Persist the credential hash before returning the only copy of the raw key.
     # This avoids returning a key that another serverless request cannot yet find.
-    await service_repo.session.commit()
+    try:
+        await service_repo.session.commit()
+    except IntegrityError:
+        await service_repo.session.rollback()
+        raise HTTPException(status_code=409, detail="That service identifier is already registered.") from None
     response.headers["Cache-Control"] = "no-store, private"
     response.headers["Pragma"] = "no-cache"
 
@@ -123,6 +128,35 @@ async def rotate_service_ingest_key(
     response.headers["Cache-Control"] = "no-store, private"
     response.headers["Pragma"] = "no-cache"
     return ServiceIngestKeyResponse(service_id=service.id, identifier=service.identifier, ingest_key=raw_key)
+
+
+@router.post("/{service_id}/revoke-ingest-key", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_service_ingest_key(
+    service_id: UUID,
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
+    current_user: Annotated[UserResponse, Depends(require_admin)],
+):
+    """Immediately revoke the service's current ingestion key (admin only)."""
+    if not await service_repo.revoke_ingest_key(service_id):
+        raise HTTPException(status_code=404, detail="Service not found.")
+    await service_repo.session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/{service_id}/status", response_model=ServiceResponse)
+async def set_service_status(
+    service_id: UUID,
+    is_active: bool,
+    service_repo: Annotated[PostgresServiceRepository, Depends(get_service_repository)],
+    current_user: Annotated[UserResponse, Depends(require_admin)],
+):
+    """Activate or deactivate a monitored service (admin only)."""
+    service = await service_repo.set_service_active(service_id, is_active)
+    if service is None:
+        raise HTTPException(status_code=404, detail="Service not found.")
+    await service_repo.session.commit()
+    await service_repo.session.refresh(service)
+    return service
 
 
 @router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)

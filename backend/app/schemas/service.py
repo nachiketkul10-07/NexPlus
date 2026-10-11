@@ -12,8 +12,11 @@ from app.services.github_repository import canonicalize_github_url
 
 
 class ServiceBase(BaseModel):
-    identifier: str = Field(..., min_length=2, max_length=80, description="Unique slug for service (e.g. demo-app)")
+    identifier: str = Field(..., min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$", description="Unique stable slug for service (e.g. demo-app)")
     name: str = Field(..., min_length=2, max_length=120, description="Display name for service")
+    description: Optional[str] = Field(default=None, max_length=2000)
+    framework: Optional[str] = Field(default=None, max_length=80)
+    language: Optional[str] = Field(default=None, max_length=40)
     environment: str = Field(default="development", max_length=32, description="Target environment (development, staging, production)")
     base_url: Optional[str] = Field(default=None, max_length=500, description="Base URL of monitored app")
     health_path: str = Field(default="/api/health", max_length=200, description="Relative health check path")
@@ -25,6 +28,11 @@ class ServiceBase(BaseModel):
         if value is None or not value.strip():
             return None
         return canonicalize_github_url(value)[2]
+
+    @field_validator("identifier", mode="before")
+    @classmethod
+    def normalize_identifier(cls, value: str) -> str:
+        return value.strip().lower()
 
 
 class GitHubRepositoryPreviewRequest(BaseModel):
@@ -50,6 +58,7 @@ class ServiceCreate(ServiceBase):
 class ServiceCreatedResponse(ServiceBase):
     id: UUID
     status: str
+    is_active: bool = True
     last_seen_at: Optional[datetime] = None
     ingest_key: str = Field(..., description="Raw service ingestion key. Shown ONLY ONCE upon creation.")
     created_at: datetime
@@ -61,6 +70,7 @@ class ServiceCreatedResponse(ServiceBase):
 class ServiceResponse(ServiceBase):
     id: UUID
     status: str
+    is_active: bool = True
     last_seen_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

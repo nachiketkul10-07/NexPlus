@@ -10,6 +10,10 @@ vi.mock('../services/services', () => ({
   previewGitHubRepositoryApi: vi.fn(),
 }));
 
+vi.mock('../app/AuthContext', () => ({
+  useAuth: () => ({ user: { role: 'ADMIN' } }),
+}));
+
 describe('GitHub repository service onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -65,6 +69,6 @@ describe('GitHub repository service onboarding', () => {
       identifier: 'owner-sample-app',
     })));
     expect(await screen.findByText('pik_live_one_time_key')).toBeInTheDocument();
-    expect(screen.getByText(/Send a first signal/)).toBeInTheDocument();
+    expect(screen.getByText('Test connection')).toBeInTheDocument();
   });
 });

@@ -22,7 +22,15 @@ async def init_db() -> None:
         existing_columns = await connection.run_sync(
             lambda sync_connection: {column["name"] for column in inspect(sync_connection).get_columns("services")}
         )
-        if "repository_url" not in existing_columns:
-            # create_all does not alter an existing SQLite development database.
-            await connection.exec_driver_sql("ALTER TABLE services ADD COLUMN repository_url TEXT")
+        # create_all does not alter an existing SQLite development database.
+        additions = {
+            "repository_url": "TEXT",
+            "description": "TEXT",
+            "framework": "VARCHAR(80)",
+            "language": "VARCHAR(40)",
+            "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+        }
+        for name, sql_type in additions.items():
+            if name not in existing_columns:
+                await connection.exec_driver_sql(f"ALTER TABLE services ADD COLUMN {name} {sql_type}")
     logger.info("Development database tables initialized; demo accounts are created only by the explicit seed command")

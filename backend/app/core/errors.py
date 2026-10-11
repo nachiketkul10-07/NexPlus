@@ -97,7 +97,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     Logs exception internally with request_id while shielding internal tracebacks from API consumers.
     """
     req_id = getattr(request.state, "request_id", request_id_ctx.get())
-    logger.error(f"Unhandled server exception on path {request.url.path}: {exc}", exc_info=True)
+    # Exception strings/tracebacks can contain driver URLs or bound credentials.
+    # Keep the request ID and exception type for correlation without logging secrets.
+    logger.error(f"Unhandled server exception on path {request.url.path} ({exc.__class__.__name__})")
 
     return create_error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

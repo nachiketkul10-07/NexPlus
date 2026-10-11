@@ -1,6 +1,22 @@
 import { apiFetch } from './api';
 import { TelemetryEvent, Metric, LogEntry } from '../types';
 
+export async function sendConnectionTestApi(serviceId: string, identifier: string, ingestKey: string): Promise<{ status: string; accepted_count: number }> {
+  return apiFetch('/telemetry/events', {
+    method: 'POST',
+    headers: { 'X-Ingest-Key': ingestKey },
+    body: JSON.stringify({
+      service_id: identifier,
+      method: 'GET',
+      endpoint: '/nexpulse/connection-check',
+      status_code: 200,
+      duration_ms: 0,
+      outcome: 'success',
+      metadata: { source: 'nexpulse-connection-test', service_uuid: serviceId },
+    }),
+  });
+}
+
 export interface TelemetryQueryParams {
   service_id?: string;
   limit?: number;

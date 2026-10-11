@@ -4,6 +4,7 @@ Configures SQLAlchemy 2.0 Async Engine and SessionMaker using settings.DATABASE_
 Supports automatic local SQLite fallback if PostgreSQL connection is unavailable.
 """
 import os
+import re
 import socket
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -25,7 +26,8 @@ if db_url.startswith("postgresql") and not settings.is_production:
     except (OSError, ValueError, IndexError):
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         db_path = os.path.join(backend_dir, "pulseops_dev.db").replace("\\", "/")
-        logger.warning(f"PostgreSQL target at '{db_url}' is unreachable. Auto-switching to local SQLite engine at '{db_path}' for zero-dependency execution.")
+        safe_target = re.sub(r"(://)[^/@]+@", r"\1***@", db_url)
+        logger.warning(f"PostgreSQL target at '{safe_target}' is unreachable. Auto-switching to local SQLite engine at '{db_path}' for zero-dependency execution.")
         db_url = f"sqlite+aiosqlite:///{db_path}"
 
 # Engine configuration arguments

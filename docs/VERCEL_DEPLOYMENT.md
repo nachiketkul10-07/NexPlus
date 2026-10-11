@@ -51,6 +51,8 @@ Do not run `python -m app.db.seed` in production; it creates development account
 
 ## Deploy and verify
 
+Before deploying a release that changes the production schema, run `alembic upgrade head` against the same production `DATABASE_URL` from a trusted local checkout or a protected migration job. Do not rely on FastAPI startup to alter production tables. This release adds migration `003_service_lifecycle_and_metadata`; run it before or as part of the backend deployment so service lifecycle and metadata columns exist.
+
 The Vercel Git project should use the repository's production branch and repository root. The checked-in `vercel.json` defines the service roots. Once environment variables and migrations are ready, deploy through the linked Vercel project and verify:
 
 - `/` loads and static client navigation works after a hard refresh.

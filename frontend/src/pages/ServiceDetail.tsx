@@ -11,7 +11,7 @@ import { fetchIncidentsApi } from '../services/incidents';
 import { Alert, Incident, LogEntry, Metric, Service, TelemetryEvent } from '../types';
 import { formatDate, formatDuration, safeExtractErrorMessage } from '../lib/utils';
 import { useAuth } from '../app/AuthContext';
-import { rotateServiceIngestKeyApi } from '../services/services';
+import { rotateServiceIngestKeyApi, revokeServiceIngestKeyApi, setServiceActiveApi } from '../services/services';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 
@@ -32,6 +32,8 @@ export const ServiceDetail: React.FC = () => {
   const [rotateError, setRotateError] = useState<string | null>(null);
   const [isRotating, setIsRotating] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
 
   const rotateKey = async () => {
     if (!service) return;
@@ -41,6 +43,20 @@ export const ServiceDetail: React.FC = () => {
       setRotateConfirmOpen(false); setRotatedKey(result.ingest_key); setKeyCopied(false);
     } catch (err) { setRotateError(safeExtractErrorMessage(err)); }
     finally { setIsRotating(false); }
+  };
+  const toggleService = async () => {
+    if (!service) return;
+    setLifecycleBusy(true); setLifecycleMessage(null);
+    try { setService(await setServiceActiveApi(service.id, service.is_active === false)); setLifecycleMessage(service.is_active === false ? 'Service activated.' : 'Service deactivated. Its key can no longer submit telemetry.'); }
+    catch (err) { setLifecycleMessage(safeExtractErrorMessage(err)); }
+    finally { setLifecycleBusy(false); }
+  };
+  const revokeKey = async () => {
+    if (!service || !window.confirm(`Revoke the current ingestion key for ${service.name}? This immediately stops ingestion until a new key is issued.`)) return;
+    setLifecycleBusy(true); setLifecycleMessage(null);
+    try { await revokeServiceIngestKeyApi(service.id); setLifecycleMessage('Ingestion key revoked. Rotate the key to issue a replacement.'); }
+    catch (err) { setLifecycleMessage(safeExtractErrorMessage(err)); }
+    finally { setLifecycleBusy(false); }
   };
   const powershellSignal = (serviceIdentifier: string) => {
     const safeIdentifier = serviceIdentifier.replace(/`/g, '``').replace(/"/g, '`"');
@@ -80,12 +96,14 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
   const activeAlerts = alerts.filter((alert) => alert.status === 'active').length;
   const activeIncidents = incidents.filter((incident) => incident.status !== 'resolved').length;
   return <div className="space-y-6">
-    <PageHeader title={service.name} description={`${service.identifier || service.id} · ${service.environment}`} action={<div className="flex flex-wrap items-center gap-3">{isAdmin && <Button size="sm" variant="secondary" onClick={() => { setRotateError(null); setRotateConfirmOpen(true); }}>Rotate ingestion key</Button>}<Link to="/app/services" className="text-sm text-[#E50039]">← All services</Link></div>} />
+    <PageHeader title={service.name} description={`${service.identifier || service.id} · ${service.environment}`} action={<div className="flex flex-wrap items-center gap-3">{isAdmin && <><Button size="sm" variant="secondary" disabled={lifecycleBusy} onClick={() => void toggleService()}>{service.is_active === false ? 'Activate service' : 'Deactivate service'}</Button><Button size="sm" variant="secondary" disabled={lifecycleBusy} onClick={() => void revokeKey()}>Revoke key</Button><Button size="sm" variant="secondary" onClick={() => { setRotateError(null); setRotateConfirmOpen(true); }}>Rotate ingestion key</Button></>}<Link to="/app/services" className="text-sm text-[#E50039]">← All services</Link></div>} />
+    {service.description && <p className="-mt-4 text-sm text-[#A7A7A7]">{service.description}</p>}
+    {lifecycleMessage && <p role="status" className="text-sm text-[#A7A7A7]">{lifecycleMessage}</p>}
     {service.repository_url && <a href={service.repository_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 border border-[#333333] bg-[#1F1F1F] px-3 py-2 text-xs text-[#F7F7F7] hover:border-[#E50039]">Linked GitHub repository <span className="font-mono text-[#E50039]">{service.repository_url.replace('https://github.com/', '')} ↗</span></a>}
     {service.repository_url && <p className="-mt-3 max-w-3xl text-xs text-[#A7A7A7]">This repository link stores source metadata; it does not install monitoring code. To connect runtime telemetry, add NexPulse reporting to that app’s server-side code using identifier <code className="text-[#F7F7F7]">{service.identifier}</code>. GitHub-hosted runners cannot send to a localhost NexPulse address; use a publicly reachable NexPulse API URL after deployment.</p>}
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
       {[
-        ['Health', <Badge variant={service.status === 'healthy' ? 'healthy' : service.status === 'degraded' ? 'warning' : 'critical'}>{service.status}</Badge>],
+        ['Health', <Badge variant={service.is_active === false ? 'critical' : !service.last_seen_at ? 'warning' : Date.now() - new Date(service.last_seen_at).getTime() < 5 * 60 * 1000 ? 'healthy' : 'warning'}>{service.is_active === false ? 'inactive' : !service.last_seen_at ? 'never connected' : Date.now() - new Date(service.last_seen_at).getTime() < 5 * 60 * 1000 ? 'receiving' : 'stale'}</Badge>],
         ['Last seen', service.last_seen_at ? formatDate(service.last_seen_at) : 'No signal'],
         ['Recent requests', events.length], ['Observed errors', errorCount],
         ['Mean latency', averageLatency === null ? '—' : formatDuration(averageLatency)], ['Active alerts / incidents', `${activeAlerts} / ${activeIncidents}`],

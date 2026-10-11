@@ -4,7 +4,6 @@ import { PageHeader } from '../components/layout/PageHeader';
 import { getServicesApi, createServiceApi, previewGitHubRepositoryApi, deleteServiceApi } from '../services/services';
 import { useAuth } from '../app/AuthContext';
 import { GitHubRepositoryPreview, Service } from '../types';
-import { StatusIndicator } from '../components/ui/StatusIndicator';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
@@ -13,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { formatDate, safeExtractErrorMessage } from '../lib/utils';
+import { sendConnectionTestApi } from '../services/telemetry';
 
 export const Services: React.FC = () => {
   const navigate = useNavigate();
@@ -26,8 +26,11 @@ export const Services: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [flow, setFlow] = useState<'manual' | 'github'>('manual');
   const [name, setName] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
   const [identifier, setIdentifier] = useState<string>('');
   const [environment, setEnvironment] = useState<string>('production');
+  const [framework, setFramework] = useState<string>('');
+  const [language, setLanguage] = useState<string>('');
   const [baseUrl, setBaseUrl] = useState<string>('');
   const [repositoryUrl, setRepositoryUrl] = useState<string>('');
   const [githubToken, setGithubToken] = useState<string>('');
@@ -38,6 +41,8 @@ export const Services: React.FC = () => {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [createdService, setCreatedService] = useState<Service | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+  const [connectionTestState, setConnectionTestState] = useState<'idle' | 'testing' | 'passed' | 'failed'>('idle');
+  const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
   const [serviceToDelete, setServiceToDelete] = useState<Service | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -65,6 +70,9 @@ export const Services: React.FC = () => {
       const s = await createServiceApi({
         identifier: identifier.trim(),
         name: name.trim(),
+        description: description.trim() || undefined,
+        framework: framework.trim() || undefined,
+        language: language.trim() || undefined,
         environment,
         base_url: baseUrl.trim() || undefined,
         repository_url: flow === 'github' ? githubPreview?.repository_url : undefined,
@@ -92,6 +100,8 @@ export const Services: React.FC = () => {
       setGithubPreview(preview);
       setRepositoryUrl(preview.repository_url);
       setName(preview.full_name.split('/')[1] || preview.full_name);
+      setDescription(preview.description || '');
+      setLanguage(preview.language || '');
       setIdentifier(preview.full_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80));
     } catch (err) {
       setFormError(safeExtractErrorMessage(err));
@@ -102,8 +112,8 @@ export const Services: React.FC = () => {
   };
 
   const closeModal = () => {
-    setIsModalOpen(false); setCreatedKey(null); setCreatedService(null); setName(''); setIdentifier('');
-    setBaseUrl(''); setRepositoryUrl(''); setGithubToken(''); setGithubPreview(null); setFormError(null); setCopied(false);
+    setIsModalOpen(false); setCreatedKey(null); setCreatedService(null); setName(''); setDescription(''); setIdentifier('');
+    setBaseUrl(''); setRepositoryUrl(''); setGithubToken(''); setGithubPreview(null); setFormError(null); setCopied(false); setFramework(''); setLanguage(''); setConnectionTestState('idle'); setConnectionTestMessage(null);
   };
   const openManual = () => { setFlow('manual'); setIsModalOpen(true); };
   const openGitHub = () => { setFlow('github'); setIsModalOpen(true); };
@@ -114,6 +124,19 @@ export const Services: React.FC = () => {
     try { await deleteServiceApi(serviceToDelete.id); setServiceToDelete(null); await fetchServices(); }
     catch (err) { setDeleteError(safeExtractErrorMessage(err)); }
     finally { setIsDeleting(false); }
+  };
+  const testConnection = async () => {
+    if (!createdKey || !createdService?.identifier) return;
+    setConnectionTestState('testing'); setConnectionTestMessage(null);
+    try {
+      const result = await sendConnectionTestApi(createdService.id, createdService.identifier, createdKey);
+      setConnectionTestState('passed');
+      setConnectionTestMessage(`Connection accepted. ${result.accepted_count} event persisted.`);
+      await fetchServices();
+    } catch (err) {
+      setConnectionTestState('failed');
+      setConnectionTestMessage(safeExtractErrorMessage(err));
+    }
   };
   const powershellSignal = (serviceIdentifier: string) => {
     const safeIdentifier = serviceIdentifier.replace(/`/g, '``').replace(/"/g, '`"');
@@ -132,7 +155,7 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Monitored Services" description="Connect applications and review the telemetry they report." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={openGitHub}>Connect GitHub repository</Button><Button size="sm" onClick={openManual}>Register service</Button></div>} />
+      <PageHeader title="Monitored Services" description="Connect applications and review the telemetry they report." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={() => void fetchServices()} isLoading={isLoading}>Refresh</Button><Button variant="secondary" size="sm" onClick={openGitHub}>Connect GitHub repository</Button><Button size="sm" onClick={openManual}>Register service</Button></div>} />
       <div className="flex items-center justify-between gap-4">
         <Input placeholder="Filter..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-md" />
         <span className="text-xs font-mono text-[#A7A7A7]">Total: {filtered.length}</span>
@@ -149,7 +172,7 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
                 <TableCell className="font-mono text-[#A7A7A7]">{s.identifier}</TableCell>
                 <TableCell>{s.repository_url ? <a href={s.repository_url} target="_blank" rel="noreferrer" className="text-[#E50039] hover:underline" onClick={(event) => event.stopPropagation()}>GitHub ↗</a> : <span className="text-[#777]">Manual</span>}</TableCell>
                 <TableCell>{s.environment}</TableCell>
-                <TableCell><StatusIndicator status={s.status} /></TableCell>
+                <TableCell>{s.is_active === false ? <span className="text-[#EF4444]">Inactive</span> : !s.last_seen_at ? <span className="text-[#A7A7A7]">Never connected</span> : Date.now() - new Date(s.last_seen_at).getTime() < 5 * 60 * 1000 ? <span className="text-[#10B981]">Receiving</span> : <span className="text-[#F59E0B]">Stale</span>}</TableCell>
                 <TableCell>{formatDate(s.last_seen_at)}</TableCell>
                 {isAdmin && <TableCell><Button variant="danger" size="sm" onClick={() => { setDeleteError(null); setServiceToDelete(s); }}>Delete</Button></TableCell>}
               </TableRow>
@@ -164,6 +187,7 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
             {createdService?.repository_url && <a href={createdService.repository_url} target="_blank" rel="noreferrer" className="text-sm text-[#F7F7F7] underline decoration-[#E50039] underline-offset-4">{createdService.repository_url}</a>}
             <div className="flex gap-2"><div className="min-w-0 flex-1 break-all border border-[#333333] bg-[#262626] p-3 font-mono text-xs text-[#E50039]">{createdKey}</div><Button variant="secondary" size="sm" onClick={() => { void navigator.clipboard.writeText(createdKey).then(() => setCopied(true)).catch(() => setFormError('Clipboard access failed. Select and copy the key manually.')); }}>{copied ? 'Copied' : 'Copy key'}</Button></div>
             <p className="text-xs text-[#A7A7A7]">Store the key as a secret in your app’s hosting platform or GitHub Actions. Never commit it to the repository or expose it to browser code.</p>
+            <div className="rounded border border-[#333333] bg-[#1F1F1F] p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold">Test connection</p><p className="text-xs text-[#A7A7A7]">Sends and stores one labeled test event using this key.</p></div><Button variant="secondary" size="sm" disabled={connectionTestState === 'testing'} isLoading={connectionTestState === 'testing'} onClick={() => void testConnection()}>Send test event</Button></div>{connectionTestMessage && <p role={connectionTestState === 'failed' ? 'alert' : 'status'} className={`mt-2 text-sm ${connectionTestState === 'failed' ? 'text-[#EF4444]' : 'text-[#10B981]'}`}>{connectionTestMessage}</p>}</div>
             <div><p className="mb-2 text-xs font-mono uppercase text-[#A7A7A7]">PowerShell · send a first signal</p><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all border border-[#333333] bg-[#191919] p-3 text-xs text-[#F7F7F7]">{powershellSignal(createdService?.identifier || '')}</pre><Button variant="secondary" size="sm" onClick={() => { void navigator.clipboard.writeText(powershellSignal(createdService?.identifier || '')).then(() => setCopied(true)).catch(() => setFormError('Clipboard access failed. Select and copy the command manually.')); }}>Copy PowerShell command</Button></div>
             <p className="text-xs text-[#A7A7A7]">Fetching a repository does not run or instrument its code. Add telemetry reporting to the server-side runtime and send signals to this endpoint to populate NexPulse.</p>
             <Button className="w-full" onClick={closeModal}>Done</Button>
@@ -189,8 +213,10 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
                 <Input label="Service name" value={name} onChange={(e) => setName(e.target.value)} required />
                 <Input label="Service identifier" value={identifier} onChange={(e) => setIdentifier(e.target.value)} maxLength={80} required />
               </div>
+              <Input label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} placeholder="What this application does" />
               <div><label className="mb-1 block text-xs text-[#A7A7A7]">Environment</label><select value={environment} onChange={(e) => setEnvironment(e.target.value)} className="h-9 w-full border border-[#333333] bg-[#1F1F1F] px-3 text-sm text-[#F7F7F7]"><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></div>
               <Input label="Running application URL (optional)" type="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
+              <div className="grid gap-4 sm:grid-cols-2"><Input label="Framework (optional)" value={framework} onChange={(e) => setFramework(e.target.value)} placeholder="Streamlit, FastAPI, Express…" /><Input label="Language (optional)" value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="Python, JavaScript…" /></div>
               <p className="text-xs text-[#A7A7A7]">This URL is for the deployed service, not the GitHub repository. Repository link and runtime URL are stored separately.</p>
               {formError && <p role="alert" className="border border-[#EF4444]/40 bg-[#EF4444]/10 p-3 text-sm text-[#EF4444]">{formError}</p>}
               <Button type="submit" className="w-full" isLoading={isSubmitting}>Create monitored service</Button>
@@ -200,6 +226,7 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
           <form onSubmit={handleCreate} className="space-y-4">
             <Input label="Service Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Order Service" required />
             <Input label="Service Identifier" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="order-service" maxLength={80} required />
+            <Input label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} placeholder="What this application does" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs text-[#A7A7A7]">Env</label>
@@ -210,6 +237,7 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
               </div>
             </div>
             <Input label="Base URL (optional)" type="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
+            <div className="grid gap-4 sm:grid-cols-2"><Input label="Framework (optional)" value={framework} onChange={(e) => setFramework(e.target.value)} placeholder="Streamlit, FastAPI, Express…" /><Input label="Language (optional)" value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="Python, JavaScript…" /></div>
             {formError && <p role="alert" className="border border-[#EF4444]/40 bg-[#EF4444]/10 p-3 text-sm text-[#EF4444]">{formError}</p>}
             <Button type="submit" className="w-full" isLoading={isSubmitting}>Register Service</Button>
           </form>

@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Union
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 SENSITIVE_KEYS = {
     "authorization", "auth", "token", "access_token", "refresh_token",
@@ -227,9 +227,15 @@ class LogResponse(BaseModel):
 # ----------------------------------------------------------------------
 class UnifiedTelemetryBatchPayload(BaseModel):
     service_id: Optional[Union[UUID, str]] = Field(default=None)
-    events: List[TelemetryEventCreate] = Field(default_factory=list)
-    metrics: List[MetricCreate] = Field(default_factory=list)
-    logs: List[LogCreate] = Field(default_factory=list)
+    events: List[TelemetryEventCreate] = Field(default_factory=list, max_length=100)
+    metrics: List[MetricCreate] = Field(default_factory=list, max_length=100)
+    logs: List[LogCreate] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def require_telemetry(self):
+        if not (self.events or self.metrics or self.logs):
+            raise ValueError("A telemetry batch must contain at least one event, metric, or log")
+        return self
 
 
 class IngestionResponse(BaseModel):

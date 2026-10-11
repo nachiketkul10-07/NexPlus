@@ -37,3 +37,11 @@ export async function rotateServiceIngestKeyApi(serviceId: string): Promise<{ se
 export async function deleteServiceApi(serviceId: string): Promise<void> {
   await apiFetch(`/services/${serviceId}`, { method: 'DELETE' });
 }
+
+export async function setServiceActiveApi(serviceId: string, isActive: boolean): Promise<Service> {
+  return apiFetch<Service>(`/services/${serviceId}/status?is_active=${isActive}`, { method: 'PATCH' });
+}
+
+export async function revokeServiceIngestKeyApi(serviceId: string): Promise<void> {
+  await apiFetch(`/services/${serviceId}/revoke-ingest-key`, { method: 'POST' });
+}

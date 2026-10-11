@@ -4,7 +4,7 @@ Service ORM Model representing Monitored Applications
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID, uuid4
-from sqlalchemy import String, Text, DateTime
+from sqlalchemy import String, Text, DateTime, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, GUID
@@ -36,6 +36,10 @@ class Service(Base, TimestampMixin):
         String(120),
         nullable=False
     )
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    framework: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    language: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     environment: Mapped[str] = mapped_column(
         String(32),
         nullable=False,

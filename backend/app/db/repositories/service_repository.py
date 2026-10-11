@@ -50,11 +50,15 @@ class PostgresServiceRepository:
         service = Service(
             identifier=service_in.identifier,
             name=service_in.name,
+            description=service_in.description,
+            framework=service_in.framework,
+            language=service_in.language,
             environment=service_in.environment,
             base_url=service_in.base_url,
             repository_url=service_in.repository_url,
             health_path=service_in.health_path,
             status="unknown",
+            is_active=True,
             ingest_key_hash=key_hash,
             last_seen_at=None
         )
@@ -72,6 +76,28 @@ class PostgresServiceRepository:
         service.ingest_key_hash = hash_ingest_key(raw_key)
         await self.session.flush()
         return raw_key
+
+    async def set_service_active(self, service_id: UUID, is_active: bool) -> Optional[Service]:
+        service = await self.get_by_id(service_id)
+        if service is None:
+            return None
+        service.is_active = is_active
+        if not is_active:
+            service.status = "inactive"
+        elif service.last_seen_at is None:
+            service.status = "unknown"
+        else:
+            service.status = "healthy"
+        await self.session.flush()
+        return service
+
+    async def revoke_ingest_key(self, service_id: UUID) -> bool:
+        service = await self.get_by_id(service_id)
+        if service is None:
+            return False
+        service.ingest_key_hash = None
+        await self.session.flush()
+        return True
 
     async def delete_service(self, service_id: UUID) -> bool:
         """Delete a service and its service-scoped operational history."""
