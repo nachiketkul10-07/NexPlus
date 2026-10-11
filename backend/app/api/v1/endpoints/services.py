@@ -58,6 +58,9 @@ async def register_service(
         )
 
     service, raw_ingest_key = await service_repo.create_service(service_in)
+    # Persist the credential hash before returning the only copy of the raw key.
+    # This avoids returning a key that another serverless request cannot yet find.
+    await service_repo.session.commit()
     response.headers["Cache-Control"] = "no-store, private"
     response.headers["Pragma"] = "no-cache"
 
@@ -115,6 +118,8 @@ async def rotate_service_ingest_key(
     if service is None:
         raise HTTPException(status_code=404, detail="Service not found.")
     raw_key = await service_repo.rotate_ingest_key(service_id)
+    # Revoke the old hash and persist the replacement before exposing the raw key.
+    await service_repo.session.commit()
     response.headers["Cache-Control"] = "no-store, private"
     response.headers["Pragma"] = "no-cache"
     return ServiceIngestKeyResponse(service_id=service.id, identifier=service.identifier, ingest_key=raw_key)
