@@ -1,5 +1,5 @@
 import { apiFetch } from './api';
-import { GitHubRepositoryPreview, Service, ServiceCreatePayload } from '../types';
+import { Service, ServiceCreatePayload } from '../types';
 
 export async function getServicesApi(): Promise<Service[]> {
   return apiFetch<Service[]>('/services', {
@@ -17,16 +17,6 @@ export async function createServiceApi(payload: ServiceCreatePayload): Promise<S
   return apiFetch<Service>('/services', {
     method: 'POST',
     body: JSON.stringify(payload),
-  });
-}
-
-export async function previewGitHubRepositoryApi(
-  repositoryUrl: string,
-  accessToken?: string,
-): Promise<GitHubRepositoryPreview> {
-  return apiFetch<GitHubRepositoryPreview>('/services/github/preview', {
-    method: 'POST',
-    body: JSON.stringify({ repository_url: repositoryUrl, access_token: accessToken || undefined }),
   });
 }
 

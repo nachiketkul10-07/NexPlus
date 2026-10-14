@@ -20,7 +20,6 @@ export interface Service {
   name: string;
   environment: string;
   base_url?: string | null;
-  repository_url?: string | null;
   health_path?: string;
   status: ServiceStatus;
   is_active?: boolean;
@@ -39,18 +38,6 @@ export interface ServiceCreatePayload {
   environment?: string;
   base_url?: string;
   health_path?: string;
-  repository_url?: string;
-}
-
-export interface GitHubRepositoryPreview {
-  full_name: string;
-  repository_url: string;
-  description?: string | null;
-  default_branch: string;
-  language?: string | null;
-  private: boolean;
-  archived: boolean;
-  manifest_files: string[];
 }
 
 export interface TelemetryEvent {

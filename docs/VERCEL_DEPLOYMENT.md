@@ -1,6 +1,6 @@
 # NexPulse on Vercel
 
-This repository is configured for a Vercel project with three services: the Vite frontend, the FastAPI backend, and the demo application. The root `vercel.json` routes `/api/*` to FastAPI, `/demo/*` to the demo service, and other paths to the frontend. The GitHub integration reads repository metadata; it does not clone or execute a connected repository. Public repositories can be inspected without a token. Private repository access requires a GitHub token entered for that operation.
+This repository is configured for a Vercel project with three services: the Vite frontend, the FastAPI backend, and the demo application. The root `vercel.json` routes `/api/*` to FastAPI, `/demo/*` to the demo service, and other paths to the frontend. Monitored applications connect by sending server-side telemetry to the deployed NexPulse API.
 
 ## Production prerequisites
 
@@ -31,7 +31,7 @@ Add the following in **Project Settings → Environment Variables**, targeting P
 | `VITE_ENABLE_DEMO_TOOLS` | `true` (public build-time flag; enables the admin demo button) |
 | `VITE_PUBLIC_REGISTRATION_ENABLED` | `true` to show the invite-only registration link, `false` to hide it |
 
-Use the deployed hostname for both the two host-related settings. If Vercel assigns a different production alias, include that exact origin and hostname too. GitHub repository inspection for public repos requires no credential; never add a personal GitHub token as a frontend environment variable.
+Use the deployed hostname for both host-related settings. If Vercel assigns a different production alias, include that exact origin and hostname too.
 
 The frontend build uses relative `/api/v1` and `/demo` paths. Do not set an API origin to localhost or expose any backend secret through `VITE_*`.
 
@@ -56,7 +56,7 @@ The Vercel Git project should use the repository's production branch and reposit
 - `/` loads and static client navigation works after a hard refresh.
 - `/health` responds over the deployed domain.
 - sign-in works and account registration stays disabled.
-- a public GitHub repository can be previewed and added; a private one can be accessed only using a user-supplied read-only token.
+- an application can be registered, its one-time ingestion key stored as a hosting secret, and a test signal verified in the service detail view.
 - the demo service emits telemetry and the resulting events, metrics, logs, alerts, and incidents appear in their views. The demo uses `PULSEOPS_INGEST_KEY`; the Streamlit integration uses the generic `NEXPULSE_INGEST_KEY` configuration described in [INTEGRATIONS.md](INTEGRATIONS.md). Keep each credential scoped to its own service and secret store.
 - AI analysis works only after a valid provider key is configured.
 

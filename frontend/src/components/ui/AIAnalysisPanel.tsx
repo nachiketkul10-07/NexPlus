@@ -113,7 +113,7 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({ incidentId }) 
               <span className="mt-0.5 text-amber-300" aria-hidden="true">●</span>
               <div>
                 <p className="text-xs font-semibold text-amber-100">Evidence fallback is active</p>
-                <p className="mt-1 text-xs leading-5 text-amber-100/60">{analysis.limitations_note} Add a Groq API key to the backend environment and restart the API to enable live model analysis. The current result remains useful, traceable telemetry guidance.</p>
+                <p className="mt-1 text-xs leading-5 text-amber-100/60">{analysis.limitations_note} This analysis was produced from stored telemetry evidence without a live model response. Configure a valid server-side AI provider key to enable live model analysis; the evidence-based fallback remains available without one.</p>
               </div>
             </div>
           )}

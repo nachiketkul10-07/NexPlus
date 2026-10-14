@@ -2,73 +2,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Services } from '../pages/Services';
-import { createServiceApi, getServicesApi, previewGitHubRepositoryApi } from '../services/services';
+import { createServiceApi, getServicesApi } from '../services/services';
+import { sendConnectionTestApi } from '../services/telemetry';
 
-vi.mock('../services/services', () => ({
-  getServicesApi: vi.fn(),
-  createServiceApi: vi.fn(),
-  previewGitHubRepositoryApi: vi.fn(),
-}));
+vi.mock('../services/services', () => ({ getServicesApi: vi.fn(), createServiceApi: vi.fn(), deleteServiceApi: vi.fn() }));
+vi.mock('../services/telemetry', () => ({ sendConnectionTestApi: vi.fn() }));
+vi.mock('../app/AuthContext', () => ({ useAuth: () => ({ user: { role: 'ADMIN' } }) }));
 
-vi.mock('../app/AuthContext', () => ({
-  useAuth: () => ({ user: { role: 'ADMIN' } }),
-}));
-
-describe('GitHub repository service onboarding', () => {
+describe('application service onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getServicesApi).mockResolvedValue([]);
-    vi.mocked(previewGitHubRepositoryApi).mockResolvedValue({
-      full_name: 'owner/sample-app',
-      repository_url: 'https://github.com/owner/sample-app',
-      description: 'Example service',
-      default_branch: 'main',
-      language: 'Python',
-      private: true,
-      archived: false,
-      manifest_files: ['pyproject.toml'],
-    });
+    vi.mocked(sendConnectionTestApi).mockResolvedValue({ status: 'accepted', accepted_count: 1 });
     vi.mocked(createServiceApi).mockResolvedValue({
-      id: 'service-id',
-      identifier: 'owner-sample-app',
-      name: 'sample-app',
-      environment: 'production',
-      status: 'healthy',
-      repository_url: 'https://github.com/owner/sample-app',
-      created_at: new Date().toISOString(),
-      ingest_key: 'pik_live_one_time_key',
+      id: 'service-id', identifier: 'study-planner', name: 'Study Planner', environment: 'production',
+      status: 'unknown', created_at: new Date().toISOString(), ingest_key: 'pik_live_one_time_key',
     });
   });
 
-  it('previews a repository, creates a linked service, and displays the one-time ingest key', async () => {
+  it('creates a service, displays connection settings, and confirms a stored test signal', async () => {
     render(<MemoryRouter><Services /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect application' }));
+    fireEvent.change(screen.getByLabelText('Application name'), { target: { value: 'Study Planner' } });
+    expect(screen.getByLabelText('Service identifier')).toHaveValue('study-planner');
+    fireEvent.click(screen.getByRole('button', { name: 'Create service and get connection key' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub repository' }));
-    fireEvent.change(screen.getByLabelText('GitHub repository URL'), {
-      target: { value: 'https://github.com/owner/sample-app' },
-    });
-    fireEvent.change(screen.getByLabelText('Read-only token (private repos only)'), {
-      target: { value: 'github_pat_temporary' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch repository details' }));
-
-    expect(await screen.findByText('owner/sample-app')).toBeInTheDocument();
-    expect(screen.getByText(/pyproject.toml/)).toBeInTheDocument();
-    expect(previewGitHubRepositoryApi).toHaveBeenCalledWith(
-      'https://github.com/owner/sample-app', 'github_pat_temporary',
-    );
-
-    fireEvent.change(screen.getByLabelText('Running application URL (optional)'), {
-      target: { value: 'https://api.example.com' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Create monitored service' }));
-
-    await waitFor(() => expect(createServiceApi).toHaveBeenCalledWith(expect.objectContaining({
-      repository_url: 'https://github.com/owner/sample-app',
-      base_url: 'https://api.example.com',
-      identifier: 'owner-sample-app',
-    })));
+    await waitFor(() => expect(createServiceApi).toHaveBeenCalledWith(expect.objectContaining({ identifier: 'study-planner', name: 'Study Planner' })));
     expect(await screen.findByText('pik_live_one_time_key')).toBeInTheDocument();
-    expect(screen.getByText('Test connection')).toBeInTheDocument();
+    expect(screen.getByText(/NEXPULSE_SERVICE_ID = "study-planner"/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Send test event' }));
+    expect(await screen.findByText('Connection accepted. 1 event persisted.')).toBeInTheDocument();
+    expect(sendConnectionTestApi).toHaveBeenCalledWith('service-id', 'study-planner', 'pik_live_one_time_key');
   });
 });

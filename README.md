@@ -52,11 +52,9 @@ For the local administrator view, sign in with the development-only account `adm
 
 The Demo Application also exposes `POST http://localhost:8001/api/demo/run`. Its individual endpoints are `GET /api/health`, `/api/users`, `/api/orders`, `/api/slow`, and `/api/error`. Set `VITE_DEMO_APP_URL` when the demo service runs at a different address.
 
-## Connect a GitHub repository
+## Connect an application
 
-From **Services → Connect GitHub repository**, paste a GitHub HTTPS repository URL. NexPulse looks up repository metadata and the names of common root manifest files, then creates a monitored service linked to that repository. Private repositories require an optional fine-grained GitHub token restricted to that repository with **Contents: read-only** access; NexPulse uses it only for the lookup and does not save it. Rotate/revoke that token in GitHub if it was pasted into an untrusted environment.
-
-Repository fetching does not clone, build, run, or deploy source code. The service continues to receive telemetry only after its deployed runtime is instrumented to send signals to NexPulse. After connection, copy the one-time ingest key and keep it in the runtime’s secret manager or GitHub Actions secrets—never commit it. The connection dialog provides a sample request to validate ingestion. Public-repository preview uses GitHub’s unauthenticated API allowance, so use a narrowly scoped token if you encounter GitHub rate limits.
+Open **Services → Connect application**, enter the app name and environment, then save the one-time service key and the `NEXPULSE_API_URL`, `NEXPULSE_SERVICE_ID`, and `NEXPULSE_INGEST_KEY` values in the app host's server-side secrets. Use **Send test event** to verify authentication and persistence. Add the server-side client from [`examples/python/nexpulse_client.py`](examples/python/nexpulse_client.py) or [`examples/node/nexpulse.mjs`](examples/node/nexpulse.mjs) to report real application traffic. NexPulse ingests telemetry; it does not fetch, execute, or deploy source repositories. See [the integration guide](docs/INTEGRATIONS.md) for Streamlit and HTTP examples.
 
 ## Configuration
 
