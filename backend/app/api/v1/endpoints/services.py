@@ -11,33 +11,11 @@ from app.api.deps import require_authenticated_user, require_admin, get_service_
 from app.db.repositories.service_repository import PostgresServiceRepository
 from app.schemas.service import (
     ServiceCreate, ServiceCreatedResponse, ServiceResponse,
-    GitHubRepositoryPreview, GitHubRepositoryPreviewRequest, ServiceIngestKeyResponse,
+    ServiceIngestKeyResponse,
 )
 from app.schemas.user import UserResponse, UserRole
-from app.core.rate_limit import rate_limiter
-from app.services.github_repository import GitHubRepositoryError, fetch_repository_preview
 
 router = APIRouter()
-
-
-@router.post("/github/preview", response_model=GitHubRepositoryPreview)
-async def preview_github_repository(
-    payload: GitHubRepositoryPreviewRequest,
-    current_user: Annotated[UserResponse, Depends(require_authenticated_user)],
-):
-    """Fetch public repository metadata or use a one-time read-only token for a private repo."""
-    limited, _, retry_after = await rate_limiter.is_rate_limited(
-        key=f"github_preview:{current_user.id}", max_requests=10, window_seconds=60, fail_closed=True
-    )
-    if limited:
-        raise HTTPException(status_code=429, detail="Repository preview rate limit exceeded.", headers={"Retry-After": str(retry_after)})
-    access_token = payload.access_token.get_secret_value().strip() if payload.access_token else None
-    try:
-        return await fetch_repository_preview(payload.repository_url, access_token)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    except GitHubRepositoryError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from None
 
 
 @router.post("", response_model=ServiceCreatedResponse, status_code=status.HTTP_201_CREATED)
@@ -76,7 +54,6 @@ async def register_service(
         environment=service.environment,
         base_url=service.base_url,
         health_path=service.health_path,
-        repository_url=service.repository_url,
         status=service.status,
         last_seen_at=service.last_seen_at,
         ingest_key=raw_ingest_key,

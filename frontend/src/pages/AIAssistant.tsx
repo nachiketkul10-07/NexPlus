@@ -6,6 +6,10 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { NexPulseLogo } from '../components/ui/NexPulseLogo';
 import { safeExtractErrorMessage } from '../lib/utils';
+import { useAuth } from '../app/AuthContext';
+import { runDemoScenarioApi } from '../services/demo';
+import { triggerEvaluationApi } from '../services/alerts';
+import { Button } from '../components/ui/Button';
 
 const countCard = (label: string, value: number, tone: string) => (
   <div className="rounded-xl border border-white/[0.08] bg-[#1E2025]/80 px-4 py-3">
@@ -15,10 +19,16 @@ const countCard = (label: string, value: number, tone: string) => (
 );
 
 export const AIAssistant: React.FC = () => {
+  const { user } = useAuth();
+  const canRunDemo = user?.role.toLowerCase() === 'admin'
+    && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_TOOLS === 'true');
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoMessage, setDemoMessage] = useState<string | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
 
   const loadIncidents = useCallback(async () => {
     setIsLoading(true);
@@ -33,6 +43,26 @@ export const AIAssistant: React.FC = () => {
       setIsLoading(false);
     }
   }, []);
+
+  const runDemoForAnalysis = async () => {
+    setDemoBusy(true);
+    setDemoError(null);
+    setDemoMessage(null);
+    try {
+      const result = await runDemoScenarioApi();
+      const evaluation = await triggerEvaluationApi();
+      const data = await fetchIncidentsApi({ limit: 50 });
+      setIncidents(data);
+      setSelectedIncidentId((current) => data.some((incident) => incident.id === current) ? current : data[0]?.id ?? '');
+      setDemoMessage(data.length
+        ? `${result.telemetry_accepted} telemetry events accepted; ${evaluation.rules_evaluated} alert rules evaluated. Select an incident below to generate its evidence-based analysis.`
+        : `${result.telemetry_accepted} telemetry events accepted; ${evaluation.rules_evaluated} rules evaluated, but no incident was opened. Check that an enabled rule is configured to create incidents, then refresh.`);
+    } catch (err) {
+      setDemoError(safeExtractErrorMessage(err));
+    } finally {
+      setDemoBusy(false);
+    }
+  };
 
   useEffect(() => {
     loadIncidents();
@@ -89,13 +119,20 @@ export const AIAssistant: React.FC = () => {
           </button>
         </div>
       ) : incidents.length === 0 ? (
-        <EmptyState
-          title="No incidents to analyze yet"
-          description="The assistant needs an incident with telemetry evidence. Generate demo traffic or wait for an alert rule to open an incident, then refresh this view."
-          actionLabel="Refresh incident stream"
-          onAction={loadIncidents}
-          className="min-h-64 rounded-2xl border-white/[0.08] bg-[#1E2025]"
-        />
+        <section className="min-h-64 rounded-2xl border border-white/[0.08] bg-[#1E2025] p-6">
+          <EmptyState
+            title="No incidents to analyze yet"
+            description="The assistant analyzes incidents using stored telemetry evidence. Connect an application and send signals, or wait for an alert rule to open an incident."
+            actionLabel="Refresh incident stream"
+            onAction={loadIncidents}
+          />
+          {canRunDemo && <div className="mx-auto mt-4 max-w-xl text-center">
+            <p className="mb-3 text-xs text-white/45">Admin demo sends synthetic requests to the configured Demo Application and evaluates alert rules.</p>
+            <Button variant="secondary" isLoading={demoBusy} onClick={() => void runDemoForAnalysis()}>{demoBusy ? 'Generating sample evidence…' : 'Generate demo incident evidence'}</Button>
+            {demoMessage && <p role="status" className="mt-3 text-xs text-emerald-300">{demoMessage}</p>}
+            {demoError && <p role="alert" className="mt-3 text-xs text-rose-300">{demoError}</p>}
+          </div>}
+        </section>
       ) : (
         <>
           <section className="rounded-xl border border-white/[0.08] bg-[#1E2025] p-4 sm:p-5">

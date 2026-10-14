@@ -1,16 +1,44 @@
 # Connect an application to NexPulse
 
-NexPulse accepts telemetry over HTTP. A service registered in **Services** gets one stable identifier and one independent ingestion key. A GitHub repository link is metadata only; NexPulse does not clone, run, or instrument its code.
+NexPulse accepts telemetry over HTTP. A service registered in **Services** gets one stable identifier and one independent ingestion key. Applications connect by sending telemetry from their server-side runtime; NexPulse does not fetch or execute source repositories.
 
 ## Service setup
 
-1. Sign in and open **Services → Register service** (or preview a GitHub repository, then create its service).
-2. Choose a unique lowercase identifier and environment. Framework and language are optional metadata.
+1. Sign in and open **Services → Connect application**.
+2. Enter an application name, confirm its suggested unique identifier, and choose its environment. Framework, language, and public app URL are optional metadata.
 3. Copy the generated `pik_live_…` key once. The API stores only its SHA-256 digest and returns the raw key only on creation or rotation.
-4. Save it in the application's server-side secret manager. Never commit it, put it in a `VITE_*` variable, or expose it to browser JavaScript.
+4. Save the three `NEXPULSE_*` values in the application's server-side secret manager. Never commit the key, put it in a `VITE_*` variable, or expose it to browser JavaScript.
 5. Use **Send test event** in the creation dialog. This stores a labeled `/nexpulse/connection-check` event. A successful result proves key authentication and database persistence.
 
 Admins can rotate a key (the old key stops working immediately), revoke it, deactivate a service, reactivate it, or delete the service and its data. Inactive services reject ingestion with HTTP 403. A revoked or otherwise unknown key receives HTTP 401. After rotating or revoking, update the connected runtime secret and restart/redeploy that runtime.
+
+For Streamlit Community Cloud, paste these TOML values into **App settings → Secrets**, replacing them with the one-time values shown by NexPulse:
+
+```toml
+NEXPULSE_API_URL = "https://<nexpulse-host>/api/v1/telemetry"
+NEXPULSE_SERVICE_ID = "my-app-production"
+NEXPULSE_INGEST_KEY = "<copy-the-one-time-key>"
+```
+
+Copy [`examples/python/nexpulse_client.py`](../examples/python/nexpulse_client.py) into the Streamlit app repository, then initialize it server-side:
+
+```python
+import streamlit as st
+from nexpulse_client import NexPulseClient
+
+nexpulse = NexPulseClient(
+    api_url=st.secrets["NEXPULSE_API_URL"],
+    service_id=st.secrets["NEXPULSE_SERVICE_ID"],
+    ingest_key=st.secrets["NEXPULSE_INGEST_KEY"],
+)
+
+nexpulse.send("events", {
+    "method": "POST", "endpoint": "/plan/generate", "status_code": 200,
+    "duration_ms": 120, "outcome": "success",
+})
+```
+
+Keep these values in Streamlit Secrets, never in source code. After saving secrets, reboot the app and verify a new request appears in the service detail view.
 
 ## HTTP contract
 

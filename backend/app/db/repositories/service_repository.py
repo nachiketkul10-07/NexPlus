@@ -56,7 +56,6 @@ class PostgresServiceRepository:
             language=service_in.language,
             environment=service_in.environment,
             base_url=service_in.base_url,
-            repository_url=service_in.repository_url,
             health_path=service_in.health_path,
             status="unknown",
             is_active=True,
