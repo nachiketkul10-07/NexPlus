@@ -9,7 +9,8 @@ import { getTelemetryEventsApi, getTelemetryLogsApi, getTelemetryMetricsApi } fr
 import { fetchAlertsApi } from '../services/alerts';
 import { fetchIncidentsApi } from '../services/incidents';
 import { Alert, Incident, LogEntry, Metric, Service, TelemetryEvent } from '../types';
-import { formatDate, formatDuration, safeExtractErrorMessage } from '../lib/utils';
+import { formatDate, formatDuration, getServiceSignalState, safeExtractErrorMessage } from '../lib/utils';
+import { getNexpulsePublicIngestOrigin } from '../lib/nexpulse';
 import { useAuth } from '../app/AuthContext';
 import { rotateServiceIngestKeyApi, revokeServiceIngestKeyApi, setServiceActiveApi } from '../services/services';
 import { Button } from '../components/ui/Button';
@@ -60,6 +61,7 @@ export const ServiceDetail: React.FC = () => {
   };
   const powershellSignal = (serviceIdentifier: string) => {
     const safeIdentifier = serviceIdentifier.replace(/`/g, '``').replace(/"/g, '`"');
+    const ingestOrigin = getNexpulsePublicIngestOrigin();
     return `$key = Read-Host "Paste the ingestion key for ${safeIdentifier}"
 $body = @{
   service_id = "${safeIdentifier}"
@@ -70,7 +72,7 @@ $body = @{
   outcome = "success"
 } | ConvertTo-Json
 
-Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/events" -Headers @{ "X-Ingest-Key" = $key } -ContentType "application/json" -Body $body`;
+Invoke-RestMethod -Method Post -Uri "${ingestOrigin}/api/v1/telemetry/events" -Headers @{ "X-Ingest-Key" = $key } -ContentType "application/json" -Body $body`;
   };
 
   const load = useCallback(async () => {
@@ -96,17 +98,18 @@ Invoke-RestMethod -Method Post -Uri "${window.location.origin}/api/v1/telemetry/
   const activeAlerts = alerts.filter((alert) => alert.status === 'active').length;
   const activeIncidents = incidents.filter((incident) => incident.status !== 'resolved').length;
   return <div className="space-y-6">
-    <PageHeader title={service.name} description={`${service.identifier || service.id} · ${service.environment}`} action={<div className="flex flex-wrap items-center gap-3">{isAdmin && <><Button size="sm" variant="secondary" disabled={lifecycleBusy} onClick={() => void toggleService()}>{service.is_active === false ? 'Activate service' : 'Deactivate service'}</Button><Button size="sm" variant="secondary" disabled={lifecycleBusy} onClick={() => void revokeKey()}>Revoke key</Button><Button size="sm" variant="secondary" onClick={() => { setRotateError(null); setRotateConfirmOpen(true); }}>Rotate ingestion key</Button></>}<Link to="/app/services" className="text-sm text-[#E50039]">← All services</Link></div>} />
+    <PageHeader title={service.name} description={`${service.identifier || service.id} · ${service.environment}`} action={<div className="flex flex-wrap items-center gap-3"><Button size="sm" variant="secondary" onClick={() => void load()} isLoading={loading}>Refresh data</Button>{isAdmin && <><Button size="sm" variant="secondary" disabled={lifecycleBusy} onClick={() => void toggleService()}>{service.is_active === false ? 'Activate service' : 'Deactivate service'}</Button><Button size="sm" variant="secondary" disabled={lifecycleBusy} onClick={() => void revokeKey()}>Revoke key</Button><Button size="sm" variant="secondary" onClick={() => { setRotateError(null); setRotateConfirmOpen(true); }}>Rotate ingestion key</Button></>}<Link to="/app/services" className="text-sm text-[#E50039]">← All services</Link></div>} />
     {service.description && <p className="-mt-4 text-sm text-[#A7A7A7]">{service.description}</p>}
     {lifecycleMessage && <p role="status" className="text-sm text-[#A7A7A7]">{lifecycleMessage}</p>}
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
       {[
-        ['Health', <Badge variant={service.is_active === false ? 'critical' : !service.last_seen_at ? 'warning' : Date.now() - new Date(service.last_seen_at).getTime() < 5 * 60 * 1000 ? 'healthy' : 'warning'}>{service.is_active === false ? 'inactive' : !service.last_seen_at ? 'never connected' : Date.now() - new Date(service.last_seen_at).getTime() < 5 * 60 * 1000 ? 'receiving' : 'stale'}</Badge>],
+        ['Signal', <Badge variant={getServiceSignalState(service.is_active, service.last_seen_at) === 'inactive' ? 'critical' : getServiceSignalState(service.is_active, service.last_seen_at) === 'receiving' ? 'healthy' : 'warning'}>{getServiceSignalState(service.is_active, service.last_seen_at) === 'inactive' ? 'inactive' : getServiceSignalState(service.is_active, service.last_seen_at) === 'never-connected' ? 'never connected' : getServiceSignalState(service.is_active, service.last_seen_at) === 'receiving' ? 'receiving' : 'quiet'}</Badge>],
         ['Last seen', service.last_seen_at ? formatDate(service.last_seen_at) : 'No signal'],
         ['Recent requests', events.length], ['Observed errors', errorCount],
         ['Mean latency', averageLatency === null ? '—' : formatDuration(averageLatency)], ['Active alerts / incidents', `${activeAlerts} / ${activeIncidents}`],
       ].map(([label, value]) => <div key={String(label)} className="rounded border border-[#333333] bg-[#1F1F1F] p-4"><p className="text-[10px] font-mono uppercase text-[#A7A7A7]">{label}</p><div className="mt-2 text-sm font-semibold">{value}</div></div>)}
     </section>
+    {getServiceSignalState(service.is_active, service.last_seen_at) === 'quiet' && <p role="status" className="-mt-3 text-xs text-[#A7A7A7]">No signal has arrived in the last five minutes. This can be normal when a Streamlit or serverless app is idle; check the last-seen time or refresh after a new app run.</p>}
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
       <section className="rounded border border-[#333333] bg-[#1F1F1F] p-4"><h2 className="mb-3 font-mono text-sm font-semibold uppercase">Recent request signals</h2>
         {events.length ? <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-[#A7A7A7]"><tr><th className="py-2">Time</th><th>Route</th><th>Status</th><th>Latency</th></tr></thead><tbody className="divide-y divide-[#333333]">{events.slice(0, 12).map((event) => <tr key={event.id}><td className="py-2 pr-3">{formatDate(event.occurred_at)}</td><td className="max-w-[220px] truncate pr-3 font-mono">{event.method} {event.endpoint}</td><td className={(event.status_code || 0) >= 400 ? 'text-[#EF4444]' : 'text-[#10B981]'}>{event.status_code}</td><td>{formatDuration(event.duration_ms)}</td></tr>)}</tbody></table></div> : <p className="text-sm text-[#A7A7A7]">No request signals recorded in this sample.</p>}
