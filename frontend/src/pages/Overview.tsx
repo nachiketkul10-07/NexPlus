@@ -6,12 +6,12 @@ import { getTelemetryEventsApi } from '../services/telemetry';
 import { fetchIncidentsApi } from '../services/incidents';
 import { fetchAlertsApi } from '../services/alerts';
 import { Service, TelemetryEvent, Incident, Alert } from '../types';
-import { StatusIndicator } from '../components/ui/StatusIndicator';
+import { ServiceSignalIndicator } from '../components/ui/ServiceSignalIndicator';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ErrorState } from '../components/ui/ErrorState';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
-import { formatDate, formatDuration, safeExtractErrorMessage } from '../lib/utils';
+import { formatDate, formatDuration, getServiceSignalState, safeExtractErrorMessage } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { runDemoScenarioApi, DemoScenarioResult, DEMO_APP_URL } from '../services/demo';
@@ -100,7 +100,7 @@ export const Overview: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Operational Control Center" description="Real-time telemetry summary, monitored service health, active alerts, and incident tracking." />
+      <PageHeader title="Operational Control Center" description="Telemetry summary, recent service signals, active alerts, and incident tracking." action={<Button variant="secondary" size="sm" onClick={() => void fetchData()} isLoading={isLoading}>Refresh</Button>} />
 
       {isAdmin && demoToolsEnabled && (
         <section className="rounded border border-[#333333] bg-[#1F1F1F] p-5" aria-labelledby="demo-control-title">
@@ -130,9 +130,9 @@ export const Overview: React.FC = () => {
           <div className="text-2xl font-bold font-mono text-[#F7F7F7]">{services.length}</div>
         </div>
         <div className="bg-[#1F1F1F] border border-[#333333] p-4 rounded space-y-1">
-          <span className="text-[10px] font-mono text-[#A7A7A7] uppercase">Healthy Services</span>
+          <span className="text-[10px] font-mono text-[#A7A7A7] uppercase">Receiving Services</span>
           <div className="text-2xl font-bold font-mono text-[#10B981]">
-            {services.filter((s) => s.status === 'healthy').length}
+            {services.filter((s) => getServiceSignalState(s.is_active, s.last_seen_at) === 'receiving').length}
           </div>
         </div>
         <div className="bg-[#1F1F1F] border border-[#333333] p-4 rounded space-y-1 cursor-pointer" onClick={() => navigate('/app/alerts')}>
@@ -160,7 +160,7 @@ export const Overview: React.FC = () => {
               <TableRow>
                 <TableHead>Service</TableHead>
                 <TableHead>Env</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Signal</TableHead>
                 <TableHead>Last Seen</TableHead>
               </TableRow>
             </TableHeader>
@@ -169,7 +169,7 @@ export const Overview: React.FC = () => {
                 <TableRow key={s.id}>
                   <TableCell className="font-semibold">{s.name}</TableCell>
                   <TableCell>{s.environment}</TableCell>
-                  <TableCell><StatusIndicator status={s.status} /></TableCell>
+                  <TableCell><ServiceSignalIndicator isActive={s.is_active} lastSeenAt={s.last_seen_at} /></TableCell>
                   <TableCell>{formatDate(s.last_seen_at)}</TableCell>
                 </TableRow>
               ))}

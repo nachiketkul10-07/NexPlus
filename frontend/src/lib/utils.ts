@@ -48,6 +48,15 @@ export function getServiceSignalState(
   return now - lastSignalTime < 5 * 60 * 1000 ? 'receiving' : 'quiet';
 }
 
+export function getServiceSignalLabel(state: ServiceSignalState): string {
+  switch (state) {
+    case 'receiving': return 'Receiving';
+    case 'quiet': return 'Quiet · no recent signal';
+    case 'inactive': return 'Inactive';
+    case 'never-connected': return 'Never connected';
+  }
+}
+
 export function safeExtractErrorMessage(err: unknown): string {
   if (!err) return 'An unexpected error occurred.';
   if (typeof err === 'string') return err;

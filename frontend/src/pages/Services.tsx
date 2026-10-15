@@ -11,7 +11,8 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { formatDate, getServiceSignalState, safeExtractErrorMessage } from '../lib/utils';
+import { formatDate, safeExtractErrorMessage } from '../lib/utils';
+import { ServiceSignalIndicator } from '../components/ui/ServiceSignalIndicator';
 import { getNexpulsePublicIngestOrigin } from '../lib/nexpulse';
 import { sendConnectionTestApi } from '../services/telemetry';
 
@@ -150,13 +151,7 @@ Invoke-RestMethod -Method Post -Uri "${ingestOrigin}/api/v1/telemetry/events" -H
                 <TableCell><button className="font-semibold text-left hover:text-[#E50039] focus-visible:outline" onClick={() => navigate(`/app/services/${s.id}`)}>{s.name}</button></TableCell>
                 <TableCell className="font-mono text-[#A7A7A7]">{s.identifier}</TableCell>
                 <TableCell>{s.environment}</TableCell>
-                <TableCell title={getServiceSignalState(s.is_active, s.last_seen_at) === 'quiet' ? 'No signal in the last five minutes. The application may simply be idle.' : undefined}>{(() => {
-                  const signalState = getServiceSignalState(s.is_active, s.last_seen_at);
-                  if (signalState === 'inactive') return <span className="text-[#EF4444]">Inactive</span>;
-                  if (signalState === 'never-connected') return <span className="text-[#A7A7A7]">Never connected</span>;
-                  if (signalState === 'receiving') return <span className="text-[#10B981]">Receiving</span>;
-                  return <span className="text-[#F59E0B]">Quiet · no recent signal</span>;
-                })()}</TableCell>
+                <TableCell><ServiceSignalIndicator isActive={s.is_active} lastSeenAt={s.last_seen_at} /></TableCell>
                 <TableCell>{formatDate(s.last_seen_at)}</TableCell>
                 {isAdmin && <TableCell><Button variant="danger" size="sm" onClick={() => { setDeleteError(null); setServiceToDelete(s); }}>Delete</Button></TableCell>}
               </TableRow>

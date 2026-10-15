@@ -23,6 +23,27 @@ from app.services.ai.fallback_engine import FallbackEngine
 logger = logging.getLogger("pulseops.ai")
 
 
+def _analysis_mode(ai_enabled: bool, ai_provider: str, ai_model: str) -> str:
+    if not ai_enabled:
+        return "deterministic-fallback"
+    return f"provider:{ai_provider.lower()}:{ai_model}"
+
+
+def analysis_matches_current_incident(
+    record: AIAnalysis,
+    incident: Incident,
+    ai_enabled: bool,
+    ai_provider: str,
+    ai_model: str,
+) -> bool:
+    """Return whether a cached analysis reflects the incident's current state and AI mode."""
+    snapshot = record.evidence_snapshot or {}
+    return (
+        snapshot.get("incident_status") == incident.status
+        and snapshot.get("analysis_mode") == _analysis_mode(ai_enabled, ai_provider, ai_model)
+    )
+
+
 class AIService:
     """Orchestrates AI analysis workflow for NexPulse incidents."""
 
@@ -55,7 +76,9 @@ class AIService:
         # 1. Check cached analysis if force_refresh is False
         if not force_refresh:
             cached = await self.get_latest_analysis(incident.id)
-            if cached:
+            if cached is not None and analysis_matches_current_incident(
+                cached, incident, settings.AI_ENABLED, settings.AI_PROVIDER, settings.AI_MODEL
+            ):
                 return cached
 
         start_time = time.time()
@@ -90,6 +113,8 @@ class AIService:
             "evidence": analysis_dict.get("evidence", []),
             "next_checks": analysis_dict.get("next_checks", []),
             "status": analysis_status,
+            "incident_status": incident.status,
+            "analysis_mode": _analysis_mode(settings.AI_ENABLED, settings.AI_PROVIDER, settings.AI_MODEL),
         }
 
         # Convert possible causes to serializable format
