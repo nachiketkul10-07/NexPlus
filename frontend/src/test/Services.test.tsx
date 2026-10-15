@@ -12,6 +12,7 @@ vi.mock('../app/AuthContext', () => ({ useAuth: () => ({ user: { role: 'ADMIN' }
 describe('application service onboarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     vi.mocked(getServicesApi).mockResolvedValue([]);
     vi.mocked(sendConnectionTestApi).mockResolvedValue({ status: 'accepted', accepted_count: 1 });
     vi.mocked(createServiceApi).mockResolvedValue({
@@ -21,6 +22,7 @@ describe('application service onboarding', () => {
   });
 
   it('creates a service, displays connection settings, and confirms a stored test signal', async () => {
+    vi.stubEnv('PROD', true);
     render(<MemoryRouter><Services /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Connect application' }));
     fireEvent.change(screen.getByLabelText('Application name'), { target: { value: 'Study Planner' } });
@@ -28,8 +30,9 @@ describe('application service onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create service and get connection key' }));
 
     await waitFor(() => expect(createServiceApi).toHaveBeenCalledWith(expect.objectContaining({ identifier: 'study-planner', name: 'Study Planner' })));
-    expect(await screen.findByText('pik_live_one_time_key')).toBeInTheDocument();
+    expect(await screen.findByText(/NEXPULSE_INGEST_KEY = "pik_live_one_time_key"/)).toBeInTheDocument();
     expect(screen.getByText(/NEXPULSE_SERVICE_ID = "study-planner"/)).toBeInTheDocument();
+    expect(screen.getByText(/NEXPULSE_INGEST_URL = "https:\/\/nexplus-flame\.vercel\.app\/api\/v1\/telemetry\/events"/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Send test event' }));
     expect(await screen.findByText('Connection accepted. 1 event persisted.')).toBeInTheDocument();
     expect(sendConnectionTestApi).toHaveBeenCalledWith('service-id', 'study-planner', 'pik_live_one_time_key');

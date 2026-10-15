@@ -20,6 +20,10 @@ NEXPULSE_SERVICE_ID = "my-app-production"
 NEXPULSE_INGEST_KEY = "<copy-the-one-time-key>"
 ```
 
+### Existing AI Study Planner deployment
+
+The deployed `AI-study-planner` sender reads `NEXPULSE_INGEST_URL`, `NEXPULSE_SERVICE_ID`, and `NEXPULSE_INGEST_KEY`, sends `X-Ingest-Key`, and accepts HTTP 202 as success. For this deployment, set `NEXPULSE_INGEST_URL` to `https://nexplus-flame.vercel.app/api/v1/telemetry/events`. The `nexplus-nachiket-space.vercel.app` project domain is protected by Vercel authentication for direct telemetry calls, so external services must use the public `nexplus-flame.vercel.app` alias. Keep the service identifier exactly as `study-planner`; never copy the key into source code.
+
 Copy [`examples/python/nexpulse_client.py`](../examples/python/nexpulse_client.py) into the Streamlit app repository, then initialize it server-side:
 
 ```python
