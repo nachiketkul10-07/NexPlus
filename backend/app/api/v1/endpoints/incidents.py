@@ -26,7 +26,7 @@ from app.schemas.incident import (
 from app.schemas.user import UserResponse, UserRole
 from app.services.incident_service import IncidentService
 from app.schemas.ai import AIAnalysisResponse, AIAnalysisRequest
-from app.services.ai.ai_service import AIService
+from app.services.ai.ai_service import AIService, analysis_matches_current_incident
 
 router = APIRouter()
 
@@ -306,10 +306,12 @@ async def get_latest_ai_analysis(
 
     ai_service = AIService(session)
     record = await ai_service.get_latest_analysis(incident_id)
-    if not record:
+    if record is None or not analysis_matches_current_incident(
+        record, incident, settings.AI_ENABLED, settings.AI_PROVIDER, settings.AI_MODEL
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No AI analysis has been generated for this incident yet."
+            detail="No current analysis is available for this incident state."
         )
 
     return _build_ai_analysis_response(record)

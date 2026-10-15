@@ -8,11 +8,12 @@ import { safeExtractErrorMessage } from '../../lib/utils';
 
 export interface AIAnalysisPanelProps {
   incidentId: string;
+  incidentStatus?: string;
 }
 
 const sourceLabel = (source: string) => source.replace(/_/g, ' ');
 
-export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({ incidentId }) => {
+export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({ incidentId, incidentStatus }) => {
   const [analysis, setAnalysis] = useState<AIAnalysisResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -34,7 +35,7 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({ incidentId }) 
     } finally {
       setIsLoading(false);
     }
-  }, [incidentId]);
+  }, [incidentId, incidentStatus]);
 
   useEffect(() => {
     loadAnalysis();
@@ -102,8 +103,8 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({ incidentId }) 
         <div className="space-y-5 p-4 sm:p-5">
           <div className={`rounded-xl border p-4 sm:p-5 ${isLive ? 'border-sky-400/15 bg-[linear-gradient(110deg,rgba(56,189,248,0.07),rgba(23,24,29,0.7))]' : 'border-amber-400/15 bg-[linear-gradient(110deg,rgba(251,191,36,0.07),rgba(23,24,29,0.7))]'}`}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[10px] font-mono uppercase tracking-[0.15em] text-white/45">Assessment summary</span>
-              <span className="text-[10px] text-white/35">{isLive ? `Generated with ${modelLabel}` : 'Generated from stored telemetry evidence'} · {new Date(analysis.created_at).toLocaleString()}</span>
+              <span className="text-[10px] font-mono uppercase tracking-[0.15em] text-white/45">Assessment summary{incidentStatus ? ` · incident ${incidentStatus.toUpperCase()}` : ''}</span>
+              <span className="text-[10px] text-white/35">{isLive ? `Generated with ${modelLabel}` : 'Deterministic evidence fallback'} · {new Date(analysis.created_at).toLocaleString()}</span>
             </div>
             <p className="text-sm leading-7 text-white/85">{analysis.summary}</p>
           </div>
@@ -113,7 +114,7 @@ export const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({ incidentId }) 
               <span className="mt-0.5 text-amber-300" aria-hidden="true">●</span>
               <div>
                 <p className="text-xs font-semibold text-amber-100">Evidence fallback is active</p>
-                <p className="mt-1 text-xs leading-5 text-amber-100/60">{analysis.limitations_note} This analysis was produced from stored telemetry evidence without a live model response. Configure a valid server-side AI provider key to enable live model analysis; the evidence-based fallback remains available without one.</p>
+                <p className="mt-1 text-xs leading-5 text-amber-100/60">{analysis.limitations_note} This deterministic analysis was produced from stored telemetry evidence without a live model response. Live analysis requires the server-side AI provider to be enabled and correctly configured.</p>
               </div>
             </div>
           )}

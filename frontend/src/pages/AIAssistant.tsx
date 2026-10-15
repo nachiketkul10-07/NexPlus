@@ -154,9 +154,10 @@ export const AIAssistant: React.FC = () => {
                   ))}
                 </select>
               </div>
+              <Button variant="secondary" size="sm" onClick={() => void loadIncidents()} isLoading={isLoading}>Refresh incident state</Button>
               <div className="flex items-center gap-2 text-[11px] text-white/45">
                 <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_9px_rgba(52,211,153,0.6)]" />
-                Secure server-side analysis
+                Server-side advisory · live provider or deterministic fallback
               </div>
             </div>
             {selectedIncident && (
@@ -171,7 +172,7 @@ export const AIAssistant: React.FC = () => {
             )}
           </section>
 
-          {selectedIncidentId && <AIAnalysisPanel incidentId={selectedIncidentId} key={selectedIncidentId} />}
+          {selectedIncidentId && selectedIncident && <AIAnalysisPanel incidentId={selectedIncidentId} incidentStatus={selectedIncident.status} key={selectedIncidentId} />}
         </>
       )}
     </div>

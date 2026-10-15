@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/layout/PageHeader';
-import { Badge } from '../components/ui/Badge';
+import { ServiceSignalIndicator } from '../components/ui/ServiceSignalIndicator';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ErrorState } from '../components/ui/ErrorState';
 import { getServiceByIdApi } from '../services/services';
@@ -103,7 +103,7 @@ Invoke-RestMethod -Method Post -Uri "${ingestOrigin}/api/v1/telemetry/events" -H
     {lifecycleMessage && <p role="status" className="text-sm text-[#A7A7A7]">{lifecycleMessage}</p>}
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
       {[
-        ['Signal', <Badge variant={getServiceSignalState(service.is_active, service.last_seen_at) === 'inactive' ? 'critical' : getServiceSignalState(service.is_active, service.last_seen_at) === 'receiving' ? 'healthy' : 'warning'}>{getServiceSignalState(service.is_active, service.last_seen_at) === 'inactive' ? 'inactive' : getServiceSignalState(service.is_active, service.last_seen_at) === 'never-connected' ? 'never connected' : getServiceSignalState(service.is_active, service.last_seen_at) === 'receiving' ? 'receiving' : 'quiet'}</Badge>],
+        ['Signal', <ServiceSignalIndicator isActive={service.is_active} lastSeenAt={service.last_seen_at} />],
         ['Last seen', service.last_seen_at ? formatDate(service.last_seen_at) : 'No signal'],
         ['Recent requests', events.length], ['Observed errors', errorCount],
         ['Mean latency', averageLatency === null ? '—' : formatDuration(averageLatency)], ['Active alerts / incidents', `${activeAlerts} / ${activeIncidents}`],

@@ -9,6 +9,7 @@ import { fetchAlertsApi } from '../services/alerts';
 import { getTelemetryEventsApi } from '../services/telemetry';
 import { Service, Incident, Alert, TelemetryEvent } from '../types';
 import { safeExtractErrorMessage } from '../lib/utils';
+import { ServiceSignalIndicator } from '../components/ui/ServiceSignalIndicator';
 
 export const Reports: React.FC = () => {
   const [services, setServices] = useState<Service[]>([]);
@@ -83,8 +84,9 @@ export const Reports: React.FC = () => {
           <div className="text-2xl font-bold font-mono text-[#F7F7F7]">{totalEvents}</div>
         </div>
         <div className="bg-[#1F1F1F] border border-[#333333] p-4 rounded">
-          <span className="text-[10px] font-mono text-[#A7A7A7] uppercase">Telemetry Failure Rate</span>
+          <span className="text-[10px] font-mono text-[#A7A7A7] uppercase">Observed HTTP Error Rate</span>
           <div className="text-2xl font-bold font-mono text-[#E50039]">{totalEvents ? `${observedErrorRate}%` : '—'}</div>
+          <p className="mt-1 text-[10px] leading-4 text-[#777]">Failed sampled app requests (HTTP 4xx/5xx). Includes demo failures; excludes rejected telemetry ingestion.</p>
         </div>
         <div className="bg-[#1F1F1F] border border-[#333333] p-4 rounded">
           <span className="text-[10px] font-mono text-[#A7A7A7] uppercase">Active Alerts</span>
@@ -105,7 +107,7 @@ export const Reports: React.FC = () => {
             <TableRow>
               <TableHead>Service Name</TableHead>
               <TableHead>Environment</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>Signal State</TableHead>
               <TableHead>Sampled Events</TableHead>
               <TableHead>Observed Errors</TableHead>
             </TableRow>
@@ -118,7 +120,7 @@ export const Reports: React.FC = () => {
                 <TableRow key={svc.id}>
                   <TableCell className="font-semibold text-[#F7F7F7]">{svc.name}</TableCell>
                   <TableCell>{svc.environment}</TableCell>
-                  <TableCell className="uppercase text-xs font-mono">{svc.status}</TableCell>
+                  <TableCell><ServiceSignalIndicator isActive={svc.is_active} lastSeenAt={svc.last_seen_at} /></TableCell>
                   <TableCell className="font-mono">{svcEvents.length}</TableCell>
                   <TableCell className="font-mono text-[#E50039]">{svcErrors}</TableCell>
                 </TableRow>
